@@ -1,6 +1,24 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { neon } from "@neondatabase/serverless";
-import { verifyAdminToken } from "../_lib/auth";
+import crypto from "crypto";
+
+function verifyAdminToken(authHeader: string | undefined): boolean {
+  if (!authHeader?.startsWith("Bearer ")) return false;
+  const token = authHeader.slice(7);
+  try {
+    const decoded = Buffer.from(token, "base64url").toString();
+    const lastDot = decoded.lastIndexOf(".");
+    const payload = decoded.slice(0, lastDot);
+    const sig = decoded.slice(lastDot + 1);
+    const expected = crypto.createHmac("sha256", process.env.ADMIN_JWT_SECRET!).update(payload).digest("hex");
+    const sigBuf = Buffer.from(sig, "hex");
+    const expBuf = Buffer.from(expected, "hex");
+    if (sigBuf.length !== expBuf.length || sigBuf.length === 0) return false;
+    if (!crypto.timingSafeEqual(sigBuf, expBuf)) return false;
+    const ts = parseInt(payload, 10);
+    return !isNaN(ts) && Date.now() - ts < 24 * 60 * 60 * 1000;
+  } catch { return false; }
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!verifyAdminToken(req.headers.authorization))
@@ -9,13 +27,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const sql = neon(process.env.DATABASE_URL!);
 
   if (req.method === "GET") {
-    const orders = await sql`
+    type Row = Record<string, unknown>;
+    const orders = (await sql`
       SELECT id, name, email, phone, county, town, address,
         subtotal_kes, delivery_kes, total_kes, status, mpesa_ref, created_at
-      FROM orders ORDER BY created_at DESC LIMIT 200`;
+      FROM orders ORDER BY created_at DESC LIMIT 200`) as Row[];
 
-    type Row = Record<string, unknown>;
-    const orderIds = (orders as Row[]).map(o => String(o.id));
+    const orderIds = orders.map(o => String(o.id));
     const items: Row[] = orders.length
       ? (await sql`
           SELECT oi.order_id, oi.product_slug, oi.colour_id, oi.size,
@@ -32,19 +50,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return acc;
     }, {});
 
-    return res.json((orders as Row[]).map(o => ({
-      ...o,
-      items: itemsByOrder[String(o.id)] ?? [],
-    })));
+    return res.json(orders.map(o => ({ ...o, items: itemsByOrder[String(o.id)] ?? [] })));
   }
 
   if (req.method === "PUT") {
     const { id, status } = req.body;
-    const allowed = ["pending", "paid", "processing", "shipped", "delivered", "cancelled"];
+    const allowed = ["pending","paid","processing","shipped","delivered","cancelled"];
     if (!allowed.includes(status)) return res.status(400).json({ error: "Invalid status" });
-    const [row] = await sql`
-      UPDATE orders SET status=${status}, updated_at=now() WHERE id=${id}
-      RETURNING id, status`;
+    const [row] = await sql`UPDATE orders SET status=${status}, updated_at=now() WHERE id=${id} RETURNING id, status`;
     return res.json(row);
   }
 

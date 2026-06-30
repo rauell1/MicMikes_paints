@@ -569,7 +569,7 @@ export default function App(){
               </div>
             </div>
 
-            {/* global pickers */}
+            {/* global pickers — size/finish hidden for supplies-only selection */}
             <div className="mm-card rounded-[18px] p-4 mb-6 grid md:grid-cols-3 gap-4">
               <div>
                 <div className="text-[12px] font-[600] mb-[6px]">Colour</div>
@@ -586,6 +586,7 @@ export default function App(){
                 <select className="select" value={shopSize} onChange={e=>setShopSize(e.target.value as Size)}>
                   <option>1L</option><option>4L</option><option>20L</option>
                 </select>
+                <div className="text-[11px] mt-[4px]" style={{ color:"#9b9589" }}>Applies to paints & primer</div>
               </div>
               <div>
                 <div className="text-[12px] font-[600] mb-[6px]">Finish</div>
@@ -597,8 +598,8 @@ export default function App(){
 
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 lg:gap-6">
               {products.map(p=>{
-                const price = p.baseKes[shopSize];
                 const isSupply = p.category==="Supplies";
+                const price = isSupply ? (p.baseKes["1L"] ?? 0) : p.baseKes[shopSize];
                 return (
                   <div key={p.id} className="mm-card rounded-[22px] overflow-hidden mm-shadow flex flex-col">
                     <div className="relative">

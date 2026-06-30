@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Analytics } from "@vercel/analytics/react";
 
 /* ──────────────────────────────────────────────────────────
    MicMikes Paints — Keekorok Edition
@@ -848,6 +849,9 @@ export default function App(){
           {toast}
         </div>
       )}
+
+      {/* Vercel Web Analytics */}
+      <Analytics />
     </div>
   );
 }

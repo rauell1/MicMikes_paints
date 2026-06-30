@@ -546,7 +546,7 @@ export default function App(){
                   </button>
 
                   <div className="text-[11px] mt-3" style={{ color:"#bdb7a8" }}>
-                    uColor {vizColour.hex} · uSheen {vizFinish==="Matte" ? "0.00" : vizFinish==="Satin" ? "0.16" : "0.30"} · mask feather 2–3px
+                    uColor {vizColour?.hex ?? "—"} · uSheen {vizFinish==="Matte" ? "0.00" : vizFinish==="Satin" ? "0.16" : "0.30"} · mask feather 2–3px
                   </div>
                 </div>
               </div>
@@ -563,7 +563,7 @@ export default function App(){
                 <p className="mm-muted mt-2">Paints, primer & supplies · M-Pesa checkout · priced in KES</p>
               </div>
               <div className="hidden sm:flex items-center gap-2 text-[12px]">
-                <span className="chip">Colour: {shopColour.name}</span>
+                <span className="chip">Colour: {shopColour?.name ?? "—"}</span>
                 <span className="chip">{shopSize}</span>
                 <span className="chip">{shopFinish}</span>
               </div>

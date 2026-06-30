@@ -14,25 +14,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         subtotal_kes, delivery_kes, total_kes, status, mpesa_ref, created_at
       FROM orders ORDER BY created_at DESC LIMIT 200`;
 
-    const items = orders.length
-      ? await sql`
+    type Row = Record<string, unknown>;
+    const orderIds = (orders as Row[]).map(o => String(o.id));
+    const items: Row[] = orders.length
+      ? (await sql`
           SELECT oi.order_id, oi.product_slug, oi.colour_id, oi.size,
             oi.finish, oi.quantity, oi.unit_kes,
             c.name AS colour_name, c.hex AS colour_hex
           FROM order_items oi
           LEFT JOIN colours c ON c.id = oi.colour_id
-          WHERE oi.order_id = ANY(${orders.map((o: { id: string }) => o.id)})`
+          WHERE oi.order_id = ANY(${orderIds})`) as Row[]
       : [];
 
-    const itemsByOrder = (items as Array<{ order_id: string } & Record<string, unknown>>)
-      .reduce<Record<string, unknown[]>>((acc, item) => {
-        (acc[item.order_id] ??= []).push(item);
-        return acc;
-      }, {});
+    const itemsByOrder = items.reduce<Record<string, Row[]>>((acc, item) => {
+      const oid = String(item.order_id);
+      (acc[oid] ??= []).push(item);
+      return acc;
+    }, {});
 
-    return res.json(orders.map((o: { id: string } & Record<string, unknown>) => ({
+    return res.json((orders as Row[]).map(o => ({
       ...o,
-      items: itemsByOrder[o.id] ?? [],
+      items: itemsByOrder[String(o.id)] ?? [],
     })));
   }
 

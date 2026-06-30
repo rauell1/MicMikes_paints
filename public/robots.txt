@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://micmikespaints.co.ke/sitemap.xml

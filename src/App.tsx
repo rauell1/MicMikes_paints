@@ -1,5 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Analytics } from "@vercel/analytics/react";
+
+/* ── session id for cart event tracking ── */
+function getSessionId(): string {
+  const key = "mm-session";
+  let id = sessionStorage.getItem(key);
+  if (!id) { id = Math.random().toString(36).slice(2, 11); sessionStorage.setItem(key, id); }
+  return id;
+}
+
+async function trackCartEvent(payload: Record<string, unknown>) {
+  try {
+    await fetch("/api/cart-events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: getSessionId(), ...payload }),
+    });
+  } catch { /* non-critical */ }
+}
 
 /* ──────────────────────────────────────────────────────────
    MicMikes Paints — Keekorok Edition
@@ -40,103 +58,7 @@ type CartItem = {
   unitKes: number;
 };
 
-const COLOURS: Colour[] = [
-  { id:"col_1", name:"Keekorok Clay",        hex:"#B56A3A", family:"Warm Earth" },
-  { id:"col_2", name:"Savanna Dust",         hex:"#D5B98C", family:"Neutrals" },
-  { id:"col_3", name:"Mara Stone",           hex:"#8B7A64", family:"Neutrals" },
-  { id:"col_4", name:"Rift Valley",          hex:"#A96B4B", family:"Warm Earth" },
-  { id:"col_5", name:"Mount Kenya Mist",     hex:"#BFD3CF", family:"Blue" },
-  { id:"col_6", name:"Aberdare Moss",        hex:"#40624A", family:"Cool Green" },
-  { id:"col_7", name:"Nairobi Blue",         hex:"#2B5F7A", family:"Blue" },
-  { id:"col_8", name:"Indian Ocean",         hex:"#4FB9B0", family:"Blue" },
-  { id:"col_9", name:"Twilight Kilimanjaro", hex:"#4B485F", family:"Blue" },
-  { id:"col_10", name:"Masai Red",           hex:"#B84A32", family:"Red & Terracotta" },
-  { id:"col_11", name:"Coral Dusk",          hex:"#D77A61", family:"Red & Terracotta" },
-  { id:"col_12", name:"Tsavo Terracotta",    hex:"#C45A34", family:"Red & Terracotta" },
-  { id:"col_13", name:"Golden Maasai",       hex:"#E9A23B", family:"Yellow & Gold" },
-  { id:"col_14", name:"Coastal Sun",         hex:"#F1C24A", family:"Yellow & Gold" },
-  { id:"col_15", name:"Acacia Bloom",        hex:"#6FA36F", family:"Cool Green" },
-  { id:"col_16", name:"Ivory Coast",         hex:"#F8F4EF", family:"Neutrals" },
-  { id:"col_17", name:"Graphite Gray",       hex:"#2B2B2E", family:"Neutrals" },
-  { id:"col_18", name:"Soft Linen",          hex:"#E9E1D4", family:"Neutrals" },
-  { id:"col_19", name:"Urban Concrete",      hex:"#8A8781", family:"Neutrals" },
-  { id:"col_20", name:"Charcoal Night",      hex:"#252328", family:"Neutrals" },
-];
-
-const PRODUCTS: Product[] = [
-  {
-    id:"prod_matte",
-    slug:"keekorok-matte-emulsion",
-    name:"Keekorok Matte Emulsion",
-    blurb:"Ultra-smooth zero-sheen interior. Nairobi humidity-resistant. Hides imperfections.",
-    category:"Paint",
-    baseKes:{ "1L":1850, "4L":6390, "20L":27900 },
-    image:"https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=900&q=80&auto=format&fit=crop",
-  },
-  {
-    id:"prod_satin",
-    slug:"satin-silk-finish",
-    name:"Satin Silk Finish",
-    blurb:"Elegant 12% sheen. High-traffic living walls, kitchens, hallways. Scrub rated.",
-    category:"Paint",
-    baseKes:{ "1L":2090, "4L":7190, "20L":31100 },
-    image:"https://images.unsplash.com/photo-1582582621959-48d27397dc69?w=900&q=80&auto=format&fit=crop",
-  },
-  {
-    id:"prod_eggshell",
-    slug:"eggshell-heritage",
-    name:"Eggshell Heritage",
-    blurb:"Heritage 7% sheen. Bedrooms, dining, low-glare luxury interiors.",
-    category:"Paint",
-    baseKes:{ "1L":1990, "4L":6890, "20L":29900 },
-    image:"https://images.unsplash.com/photo-1519562832-c9be7b09eae3?w=900&q=80&auto=format&fit=crop",
-  },
-  {
-    id:"prod_gloss",
-    slug:"semi-gloss-acrylic",
-    name:"Semi-Gloss Acrylic",
-    blurb:"Tough trim armour. Doors, skirting, wet areas. Moisture-seal tech.",
-    category:"Paint",
-    baseKes:{ "1L":2190, "4L":7490, "20L":32400 },
-    image:"https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=900&q=80&auto=format&fit=crop",
-  },
-  {
-    id:"prod_primer",
-    slug:"deep-penetrating-primer",
-    name:"Deep Penetrating Primer",
-    blurb:"Universal bonding sealer. Maximises topcoat colour depth. 1-coat coverage.",
-    category:"Primer",
-    baseKes:{ "1L":1490, "4L":4350, "20L":18600 },
-    image:"https://images.unsplash.com/photo-1621905252507-b35492cc74b4?w=900&q=80&auto=format&fit=crop",
-  },
-  {
-    id:"prod_tray",
-    slug:"professional-tray-set",
-    name:"Professional Tray Set",
-    blurb:"Keekorok roller + tray + 2 refills. Lint-free microfibre. Pro finish at home.",
-    category:"Supplies",
-    baseKes:{ "1L":1250, "4L":1250, "20L":1250 },
-    image:"https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=900&q=80&auto=format&fit=crop",
-  },
-];
-
-const ROOMS = [
-  {
-    id:"room_nairobi",
-    name:"Nairobi Living Room",
-    photo:"https://images.pexels.com/photos/8146213/pexels-photo-8146213.jpeg?auto=compress&cs=tinysrgb&w=1600",
-  },
-  {
-    id:"room_coastal",
-    name:"Coastal Kitchen",
-    photo:"https://images.pexels.com/photos/7040696/pexels-photo-7040696.jpeg?auto=compress&cs=tinysrgb&w=1600",
-  },
-  {
-    id:"room_karen",
-    name:"Karen Bedroom",
-    photo:"https://images.pexels.com/photos/6186819/pexels-photo-6186819.jpeg?auto=compress&cs=tinysrgb&w=1600",
-  },
-];
+type Room = { id: string; name: string; photo: string };
 
 const FAMILIES: ColourFamily[] = ["Neutrals","Warm Earth","Cool Green","Blue","Red & Terracotta","Yellow & Gold"];
 const ALL_FAMILIES: (ColourFamily | "All")[] = ["All", ...FAMILIES];
@@ -146,7 +68,25 @@ const uid = ()=> Math.random().toString(36).slice(2,9);
 
 /* ── App ── */
 export default function App(){
-  /* cart (Zustand-like, persist localStorage key "micmikes-cart") */
+  /* remote data from Neon via /api routes */
+  const [colours, setColours] = useState<Colour[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [dataLoading, setDataLoading] = useState(true);
+
+  useEffect(()=>{
+    Promise.all([
+      fetch("/api/colours").then(r=>r.json()),
+      fetch("/api/products").then(r=>r.json()),
+      fetch("/api/rooms").then(r=>r.json()),
+    ]).then(([c, p, r])=>{
+      setColours(c as Colour[]);
+      setProducts(p as Product[]);
+      setRooms(r as Room[]);
+    }).catch(console.error).finally(()=>setDataLoading(false));
+  }, []);
+
+  /* cart (persist to localStorage) */
   const [cart, setCart] = useState<CartItem[]>(()=>{
     try { const raw = localStorage.getItem("micmikes-cart"); return raw ? JSON.parse(raw) : []; } catch { return []; }
   });
@@ -167,21 +107,23 @@ export default function App(){
 
   /* visualizer state */
   const [vizRoomIdx, setVizRoomIdx] = useState(0);
-  const [vizColour, setVizColour] = useState<Colour>(COLOURS[7]); // Indian Ocean
+  const [vizColourId, setVizColourId] = useState<string | null>(null);
   const [vizFinish, setVizFinish] = useState<Finish>("Satin");
-  const vizRoom = ROOMS[vizRoomIdx];
+  const vizRoom = rooms[vizRoomIdx] ?? null;
+  const vizColour = (vizColourId ? colours.find(c=>c.id===vizColourId) : null) ?? colours.find(c=>c.name==="Indian Ocean") ?? colours[0] ?? null;
 
   /* colour explorer */
   const [familyFilter, setFamilyFilter] = useState<ColourFamily | "All">("All");
-  const filteredColours = familyFilter === "All" ? COLOURS : COLOURS.filter(c=>c.family === familyFilter);
+  const filteredColours = familyFilter === "All" ? colours : colours.filter(c=>c.family === familyFilter);
 
-  /* shop config state (per product) – simple global pickers */
-  const [shopColour, setShopColour] = useState<Colour>(COLOURS[0]);
+  /* shop config state */
+  const [shopColourId, setShopColourId] = useState<string | null>(null);
+  const shopColour = (shopColourId ? colours.find(c=>c.id===shopColourId) : null) ?? colours[0] ?? null;
   const [shopSize, setShopSize] = useState<Size>("4L");
   const [shopFinish, setShopFinish] = useState<Finish>("Matte");
 
   /* cart actions */
-  const addItem = (item: Omit<CartItem,"quantity"> & { quantity?:number })=>{
+  const addItem = useCallback((item: Omit<CartItem,"quantity"> & { quantity?:number })=>{
     const qty = item.quantity ?? 1;
     setCart(prev=>{
       const idx = prev.findIndex(p =>
@@ -199,11 +141,16 @@ export default function App(){
     });
     setCartOpen(true);
     showToast(`Added ${item.colourName} • ${item.size}`);
-  };
+    trackCartEvent({ eventType:"add", productSlug:item.productSlug, colourId:item.colourId, size:item.size, finish:item.finish, quantity:qty, unitKes:item.unitKes });
+  }, []);
   const updateQty = (key:string, q:number)=>{
     setCart(cs=> cs.map(c=> key===`${c.productId}|${c.colourId}|${c.size}|${c.finish}` ? {...c, quantity: Math.max(1,q)} : c));
   };
-  const removeLine = (key:string)=> setCart(cs=> cs.filter(c=> key !== `${c.productId}|${c.colourId}|${c.size}|${c.finish}`));
+  const removeLine = (key:string)=>{
+    const item = cart.find(c=> key===`${c.productId}|${c.colourId}|${c.size}|${c.finish}`);
+    if(item) trackCartEvent({ eventType:"remove", productSlug:item.productSlug, colourId:item.colourId, size:item.size, finish:item.finish });
+    setCart(cs=> cs.filter(c=> key !== `${c.productId}|${c.colourId}|${c.size}|${c.finish}`));
+  };
 
   /* smooth scroll */
   const scrollTo = (id:string)=>{
@@ -394,10 +341,10 @@ export default function App(){
                     </div>
                   </div>
                   <div className="px-4 sm:px-5 py-4 flex items-center gap-[10px] flex-wrap">
-                    {COLOURS.slice(6,14).map(c=>(
+                    {colours.slice(6,14).map(c=>(
                       <button
                         key={c.id}
-                        onClick={()=>{ setVizColour(c); scrollTo("visualizer"); }}
+                        onClick={()=>{ setVizColourId(c.id); scrollTo("visualizer"); }}
                         title={c.name}
                         aria-label={c.name}
                         className="swatch"
@@ -422,13 +369,10 @@ export default function App(){
               <button onClick={()=>scrollTo("colours")} className="text-[13.5px] font-[600]" style={{ color:"#B84A32" }}>See all 20 →</button>
             </div>
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-              {[
-                COLOURS[0], COLOURS[7], COLOURS[12], COLOURS[9],
-                COLOURS[5], COLOURS[4], COLOURS[11], COLOURS[15],
-              ].map(c=>(
+              {[0,7,12,9,5,4,11,15].map(i=>colours[i]).filter(Boolean).map(c=>(
                 <button
                   key={c.id}
-                  onClick={()=>{ setVizColour(c); scrollTo("visualizer"); }}
+                  onClick={()=>{ setVizColourId(c.id); scrollTo("visualizer"); }}
                   className="mm-card rounded-[20px] overflow-hidden text-left group hover:mm-shadow transition-shadow"
                 >
                   <div className="h-[110px] relative" style={{ backgroundColor:c.hex }}>
@@ -474,7 +418,7 @@ export default function App(){
               {filteredColours.map(c=>(
                 <button
                   key={c.id}
-                  onClick={()=>{ setVizColour(c); setShopColour(c); showToast(`${c.name} selected`); }}
+                  onClick={()=>{ setVizColourId(c.id); setShopColourId(c.id); showToast(`${c.name} selected`); }}
                   className="mm-card rounded-[18px] overflow-hidden text-left hover:mm-shadow transition-shadow focus:outline-none focus:ring-[3px] focus:ring-[#4FB9B055]"
                   aria-label={`${c.name} ${c.hex}`}
                 >
@@ -509,10 +453,13 @@ export default function App(){
               {/* canvas */}
               <div className="lg:col-span-8">
                 <div className="rounded-[26px] overflow-hidden mm-shadow" style={{ background:"#17171a" }}>
-                  <VisualizerCanvas room={vizRoom} colour={vizColour} finish={vizFinish} />
+                  {vizRoom && vizColour
+                    ? <VisualizerCanvas room={vizRoom} colour={vizColour} finish={vizFinish} />
+                    : <div className="h-[380px] flex items-center justify-center text-[#888]">Loading rooms…</div>
+                  }
                 </div>
                 <div className="mt-4">
-                  <BeforeAfterSlider room={vizRoom} colour={vizColour} finish={vizFinish} />
+                  {vizRoom && vizColour && <BeforeAfterSlider room={vizRoom} colour={vizColour} finish={vizFinish} />}
                 </div>
               </div>
 
@@ -521,7 +468,7 @@ export default function App(){
                 <div className="rounded-[22px] p-5 mm-shadow" style={{ background:"#202023", border:"1px solid #3a3a3d" }}>
                   <div className="text-[12px] font-[600] mb-[10px]" style={{ color:"#d5cfc3" }}>Room</div>
                   <div className="grid gap-2 mb-5">
-                    {ROOMS.map((r,idx)=>(
+                    {rooms.map((r,idx)=>(
                       <button
                         key={r.id}
                         onClick={()=>setVizRoomIdx(idx)}
@@ -541,17 +488,17 @@ export default function App(){
                     ))}
                   </div>
 
-                  <div className="text-[12px] font-[600] mb-[10px]" style={{ color:"#d5cfc3" }}>Colour — {vizColour.name}</div>
+                  <div className="text-[12px] font-[600] mb-[10px]" style={{ color:"#d5cfc3" }}>Colour — {vizColour?.name ?? "—"}</div>
                   <div className="grid grid-cols-6 sm:grid-cols-8 lg:grid-cols-6 gap-[9px] mb-4">
-                    {COLOURS.map(c=>(
+                    {colours.map(c=>(
                       <button
                         key={c.id}
-                        onClick={()=>setVizColour(c)}
+                        onClick={()=>setVizColourId(c.id)}
                         className={`w-full aspect-square rounded-[12px] border-[2px] transition`}
                         style={{
                           backgroundColor:c.hex,
-                          borderColor: vizColour.id===c.id ? "#E9A23B" : "transparent",
-                          transform: vizColour.id===c.id ? "scale(1.04)" : "none"
+                          borderColor: vizColour?.id===c.id ? "#E9A23B" : "transparent",
+                          transform: vizColour?.id===c.id ? "scale(1.04)" : "none"
                         }}
                         aria-label={c.name}
                         title={c.name}
@@ -576,8 +523,10 @@ export default function App(){
                   </div>
 
                   <button
+                    disabled={!vizColour || !products[0]}
                     onClick={()=>{
-                      const p = PRODUCTS[0];
+                      const p = products[0];
+                      if(!p || !vizColour) return;
                       addItem({
                         productId: p.id,
                         productName: p.name,
@@ -590,10 +539,10 @@ export default function App(){
                         unitKes: p.baseKes["4L"],
                       });
                     }}
-                    className="btn w-full py-[13px] text-[14.5px]"
+                    className="btn w-full py-[13px] text-[14.5px] disabled:opacity-40"
                     style={{ background:"#E9A23B", color:"#2B1a05" }}
                   >
-                    Add {vizColour.name} to Cart
+                    Add {vizColour?.name ?? "colour"} to Cart
                   </button>
 
                   <div className="text-[11px] mt-3" style={{ color:"#bdb7a8" }}>
@@ -626,10 +575,10 @@ export default function App(){
                 <div className="text-[12px] font-[600] mb-[6px]">Colour</div>
                 <select
                   className="select"
-                  value={shopColour.id}
-                  onChange={e=> setShopColour(COLOURS.find(c=>c.id===e.target.value) || COLOURS[0])}
+                  value={shopColour?.id ?? ""}
+                  onChange={e=> setShopColourId(e.target.value)}
                 >
-                  {COLOURS.map(c=> <option key={c.id} value={c.id}>{c.name} — {c.hex}</option>)}
+                  {colours.map(c=> <option key={c.id} value={c.id}>{c.name} — {c.hex}</option>)}
                 </select>
               </div>
               <div>
@@ -647,17 +596,17 @@ export default function App(){
             </div>
 
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 lg:gap-6">
-              {PRODUCTS.map(p=>{
+              {products.map(p=>{
                 const price = p.baseKes[shopSize];
                 const isSupply = p.category==="Supplies";
                 return (
                   <div key={p.id} className="mm-card rounded-[22px] overflow-hidden mm-shadow flex flex-col">
                     <div className="relative">
-                      <img src={p.image} alt={p.name} className="w-full h-[196px] object-cover" loading="lazy" />
+                      <img src={p.image} alt={p.name} className="w-full h-[196px] object-cover" loading="lazy" decoding="async" />
                       <div className="absolute top-3 left-3 text-[11px] px-[10px] py-[5px] rounded-full bg-white/93 font-[600]">
                         {p.category}
                       </div>
-                      {!isSupply && (
+                      {!isSupply && shopColour && (
                         <div className="absolute bottom-3 left-3 flex items-center gap-2 px-[10px] py-[6px] rounded-[12px] bg-white/95 text-[11.5px] font-[600]">
                           <span className="w-[15px] h-[15px] rounded-full inline-block border border-[#e7d8c0]" style={{ backgroundColor: shopColour.hex }} />
                           {shopColour.name}
@@ -673,20 +622,22 @@ export default function App(){
                           <div className="text-[19px] font-[700]">{kes(price)}</div>
                         </div>
                         <button
+                          disabled={!shopColour && !isSupply}
                           onClick={()=>{
+                            if(!shopColour && !isSupply) return;
                             addItem({
                               productId: p.id,
                               productName: p.name,
                               productSlug: p.slug,
-                              colourId: shopColour.id,
-                              colourName: isSupply ? "—" : shopColour.name,
-                              colourHex: isSupply ? "#e8e3db" : shopColour.hex,
+                              colourId: shopColour?.id ?? "none",
+                              colourName: isSupply ? "—" : (shopColour?.name ?? ""),
+                              colourHex: isSupply ? "#e8e3db" : (shopColour?.hex ?? "#ccc"),
                               size: shopSize,
                               finish: isSupply ? "Matte" : shopFinish,
                               unitKes: price,
                             });
                           }}
-                          className="btn btn-primary px-[16px] py-[11px] text-[13.5px]"
+                          className="btn btn-primary px-[16px] py-[11px] text-[13.5px] disabled:opacity-40"
                         >
                           Add to Cart
                         </button>
@@ -723,15 +674,16 @@ export default function App(){
           <div className="space-y-[10px]" style={{ color:"#d6cdc0" }}>
             <div className="font-[600] text-[#F8F4EF] mb-1">Keekorok</div>
             <div>Nairobi, Kenya</div>
-            <div>orders@micmikespaints.co.ke</div>
-            <div>+254 712 345 678</div>
+            <div className="text-[12.5px]">Westlands · Karen · CBD</div>
+            <div className="text-[12.5px]">Mon–Sat 8am–6pm</div>
           </div>
-          <div className="text-[12px] font-mono2 leading-relaxed" style={{ color:"#b8aea0" }}>
-            Next.js 14 · Neon PG<br/>
-            Drizzle ORM · M-Pesa Daraja<br/>
-            Three.js r128<br/>
-            Vercel edge
-            <div className="mt-3 text-[11px]">© 2026 MicMikes Paints</div>
+          <div className="space-y-[10px]" style={{ color:"#d6cdc0" }}>
+            <div className="font-[600] text-[#F8F4EF] mb-1">Connect</div>
+            <a href="https://wa.me/254712345678" target="_blank" rel="noopener noreferrer" className="block hover:opacity-80">WhatsApp</a>
+            <a href="mailto:orders@micmikespaints.co.ke" className="block hover:opacity-80">orders@micmikespaints.co.ke</a>
+            <a href="tel:+254712345678" className="block hover:opacity-80">+254 712 345 678</a>
+            <div className="text-[11px] font-mono2 mt-3" style={{ color:"#b8aea0" }}>React · Neon PG · Drizzle ORM<br/>Vercel · designed by rauell.systems</div>
+            <div className="text-[11px]" style={{ color:"#b8aea0" }}>© 2026 MicMikes Paints</div>
           </div>
         </div>
         <div className="border-t" style={{ borderColor:"#3b3b3c" }}>
@@ -832,6 +784,7 @@ export default function App(){
           deliveryFee={deliveryFee}
           total={totalKes}
           cartCount={cartCount}
+          cart={cart}
           onClose={()=>setCheckoutOpen(false)}
           onSuccess={(orderMeta)=>{
             setCheckoutOpen(false);
@@ -850,6 +803,19 @@ export default function App(){
         </div>
       )}
 
+      {/* WhatsApp float button */}
+      <a
+        href="https://wa.me/254712345678?text=Hi%20MicMikes%20Paints%20%E2%80%94%20I%27d%20like%20to%20order%20Keekorok%20paints"
+        target="_blank" rel="noopener noreferrer"
+        aria-label="Chat on WhatsApp"
+        className="fixed bottom-6 right-5 z-[85] w-14 h-14 rounded-full flex items-center justify-center mm-shadow"
+        style={{ background:"#25D366" }}
+      >
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="white" aria-hidden="true">
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+        </svg>
+      </a>
+
       {/* Vercel Web Analytics */}
       <Analytics />
     </div>
@@ -858,7 +824,7 @@ export default function App(){
 
 /* ── Visualizer Canvas ── */
 function VisualizerCanvas({ room, colour, finish }:{
-  room: typeof ROOMS[0], colour: Colour, finish: Finish
+  room: Room, colour: Colour, finish: Finish
 }){
   const opacity = finish==="Matte" ? 0.55 : finish==="Eggshell" ? 0.52 : finish==="Satin" ? 0.50 : 0.46;
   const sheen = finish==="Matte" ? 0 : finish==="Eggshell" ? 0.07 : finish==="Satin" ? 0.14 : 0.27;
@@ -910,7 +876,7 @@ function VisualizerCanvas({ room, colour, finish }:{
 
 /* ── Before / After Slider ── */
 function BeforeAfterSlider({ room, colour, finish }:{
-  room: typeof ROOMS[0], colour: Colour, finish: Finish
+  room: Room, colour: Colour, finish: Finish
 }){
   const [pos, setPos] = useState(54); // %
   const ref = useRef<HTMLDivElement>(null);
@@ -960,9 +926,10 @@ function BeforeAfterSlider({ room, colour, finish }:{
 
 /* ── Checkout Dialog ── */
 function CheckoutDialog({
-  subtotal, deliveryFee, total, cartCount, onClose, onSuccess
+  subtotal, deliveryFee, total, cartCount, cart, onClose, onSuccess
 }:{
   subtotal:number; deliveryFee:number; total:number; cartCount:number;
+  cart: CartItem[];
   onClose:()=>void;
   onSuccess:(meta:{invoice:string, mpesaRef:string})=>void;
 }){
@@ -987,11 +954,28 @@ function CheckoutDialog({
   };
   const phoneNorm = normalizePhone(form.phone);
 
-  const startMpesa = ()=>{
+  const startMpesa = async ()=>{
     if(!form.name.trim() || !form.email.includes("@")){ setErr("Enter name & valid email"); return; }
     if(!/^2547\d{8}$/.test(phoneNorm)){ setErr("M-Pesa number must be 2547XXXXXXXX"); return; }
     setErr("");
     setStep("stk_sending");
+    try {
+      await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.name, email: form.email, phone: phoneNorm,
+          county: form.county, town: form.town, address: form.address,
+          subtotalKes: subtotal, deliveryKes: deliveryFee, totalKes: total,
+          items: cart.map(i=>({
+            productSlug: i.productSlug,
+            colourId: i.colourId,
+            size: i.size, finish: i.finish,
+            quantity: i.quantity, unitKes: i.unitKes,
+          })),
+        }),
+      });
+    } catch { /* order saved best-effort; continue to simulate M-Pesa */ }
     setTimeout(()=>{ setStep("stk_pin"); setCountdown(3); }, 2000);
   };
 

@@ -44,15 +44,19 @@ async function main() {
     console.log(`Rasterizing mask for ${room.name}...`);
     const polys = room.wall_mask.split(";").map((s: string) => parsePoly(s.trim())).filter((p: any) => p.length >= 3);
     
-    const png = new PNG({ width: W, height: H, colorType: 0 }); // Grayscale
+    const png = new PNG({ width: W, height: H }); // Default RGBA
     
     for (let y = 0; y < H; y++) {
       const ny = y / H;
       for (let x = 0; x < W; x++) {
         const nx = x / W;
         const inside = polys.some((poly: any) => inPoly(nx, ny, poly));
-        const idx = y * W + x;
-        png.data[idx] = inside ? 255 : 0;
+        const idx = (y * W + x) * 4;
+        const val = inside ? 255 : 0;
+        png.data[idx] = val;     // R
+        png.data[idx + 1] = val; // G
+        png.data[idx + 2] = val; // B
+        png.data[idx + 3] = 255; // A (Opaque)
       }
     }
 

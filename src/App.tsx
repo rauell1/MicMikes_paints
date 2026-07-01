@@ -911,13 +911,14 @@ async function _loadRoomData(photoUrl:string, wallMask:string, tw:number, th:num
       let pixels: Uint8ClampedArray;
       try { pixels = ctx.getImageData(0,0,tw,th).data; }
       catch { resolve(null); return; } // CORS blocked
-      // Rasterise polygon mask
-      const poly = _parsePoly(wallMask||"0,0.13 1,0.13 1,0.60 0,0.60");
+      // Rasterise wall mask — supports semicolon-delimited multiple polygon regions
+      const polys = (wallMask||"0,0.13 1,0.13 1,0.60 0,0.60")
+        .split(";").map(s => _parsePoly(s.trim())).filter(p => p.length >= 3);
       const mask = new Uint8Array(tw*th);
       for(let y=0;y<th;y++){
         const ny=y/th;
         for(let x=0;x<tw;x++){
-          if(_inPoly(x/tw, ny, poly)) mask[y*tw+x]=1;
+          if(polys.some(poly => _inPoly(x/tw, ny, poly))) mask[y*tw+x]=1;
         }
       }
       resolve({ pixels: new Uint8ClampedArray(pixels), mask, w:tw, h:th });

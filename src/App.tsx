@@ -927,7 +927,10 @@ async function _loadRoomData(photoUrl:string, wallMask:string, tw:number, th:num
   });
 }
 
-/* Apply paint colour to a copy of the original pixels */
+/* Apply paint colour to a copy of the original pixels.
+   Two-layer filter: (1) spatial polygon mask, (2) per-pixel neutrality check —
+   walls are desaturated and light; furniture/floors have distinct hue or are dark.
+   Only pixels that are both inside the polygon AND neutral enough get recoloured. */
 function _applyPaint(
   orig: Uint8ClampedArray, mask: Uint8Array,
   paintHex: string, satScale: number, sheenAmt: number, w:number, h:number
@@ -938,13 +941,21 @@ function _applyPaint(
   for(let i=0;i<mask.length;i++){
     if(!mask[i]) continue;
     const p=i*4;
-    const [,,l] = _rgbToHsl(data[p], data[p+1], data[p+2]);
-    // preserve lightness (shadows/highlights), replace hue+sat
-    const [nr,ng,nb] = _hslToRgb(ph, Math.min(1, ps*satScale), l);
-    // blend toward white for sheen (satin/gloss)
-    data[p]   = Math.round(nr + (255-nr)*sheenAmt*l);
-    data[p+1] = Math.round(ng + (255-ng)*sheenAmt*l);
-    data[p+2] = Math.round(nb + (255-nb)*sheenAmt*l);
+    const [,os,ol] = _rgbToHsl(data[p], data[p+1], data[p+2]);
+    // Skip pixels that are too saturated (furniture, plants, coloured objects)
+    // or too dark (fixtures, shadows, dark cabinets)
+    // "wallness" = 0 for clearly non-wall pixels, 1 for neutral bright surfaces
+    const satFilt  = Math.max(0, 1 - os * 4);   // 0 when sat ≥ 0.25
+    const lightFilt = Math.min(1, Math.max(0, (ol - 0.18) / 0.35)); // 0 when l < 0.18, 1 when l > 0.53
+    const wallness = satFilt * lightFilt;
+    if(wallness < 0.08) continue;                // skip non-wall pixels entirely
+    // Preserve original lightness; replace hue+sat weighted by wallness
+    const newS = Math.min(1, ps * satScale * wallness);
+    const [nr,ng,nb] = _hslToRgb(ph, newS, ol);
+    // Blend toward white on bright areas for satin/gloss sheen
+    data[p]   = Math.round(nr + (255-nr)*sheenAmt*ol);
+    data[p+1] = Math.round(ng + (255-ng)*sheenAmt*ol);
+    data[p+2] = Math.round(nb + (255-nb)*sheenAmt*ol);
   }
   return new ImageData(data, w, h);
 }

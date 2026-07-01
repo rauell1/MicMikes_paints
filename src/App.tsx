@@ -855,53 +855,45 @@ export default function App(){
   );
 }
 
-/* ── wall clip-path helper ── */
-function WallClipDefs({ roomId, points }: { roomId: string; points: string }) {
-  return (
-    <svg style={{ position:"absolute", width:0, height:0, overflow:"hidden" }} aria-hidden>
-      <defs>
-        <clipPath id={`wall-${roomId}`} clipPathUnits="objectBoundingBox">
-          <polygon points={points} />
-        </clipPath>
-      </defs>
-    </svg>
-  );
+/* ── Convert 0–1 wall mask coordinates to CSS polygon() ──
+   CSS clip-path polygon() is rock-solid on HTML elements; SVG objectBoundingBox
+   clipPath references are not reliable for non-SVG elements. */
+function wallMaskToCSS(mask: string): string {
+  const pts = mask.trim().split(/\s+/).map(p => {
+    const [x, y] = p.split(",").map(Number);
+    return `${(x * 100).toFixed(2)}% ${(y * 100).toFixed(2)}%`;
+  });
+  return `polygon(${pts.join(", ")})`;
 }
 
 /* ── Visualizer Canvas ── */
 function VisualizerCanvas({ room, colour, finish }:{
   room: Room, colour: Colour, finish: Finish
 }){
-  const opacity = finish==="Matte" ? 0.55 : finish==="Eggshell" ? 0.52 : finish==="Satin" ? 0.50 : 0.46;
-  const sheen   = finish==="Matte" ? 0   : finish==="Eggshell" ? 0.07 : finish==="Satin" ? 0.14 : 0.27;
+  const opacity = finish==="Matte" ? 0.54 : finish==="Eggshell" ? 0.51 : finish==="Satin" ? 0.49 : 0.45;
+  const sheen   = finish==="Matte" ? 0    : finish==="Eggshell" ? 0.07 : finish==="Satin" ? 0.14 : 0.27;
 
-  const wallClip = room.wallMask
-    ? `url(#wall-${room.id})`
-    : undefined;
-
-  // Fallback gradient mask when no per-room polygon is available
-  const fallbackMask = "linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 9%, rgba(0,0,0,1) 72%, rgba(0,0,0,.72) 82%, rgba(0,0,0,0) 92%)";
+  // CSS polygon clip — works reliably on HTML div elements
+  const wallClip = room.wallMask ? wallMaskToCSS(room.wallMask)
+    : "polygon(0% 8%, 100% 8%, 100% 72%, 0% 72%)"; // generic fallback
 
   return (
     <div className="relative w-full">
-      {room.wallMask && <WallClipDefs roomId={room.id} points={room.wallMask} />}
       <img src={room.photo} alt={room.name}
         className="w-full h-[380px] sm:h-[500px] object-cover block"
       />
-      {/* colour overlay – restricted to wall polygon when available */}
+      {/* Paint colour — clipped to wall polygon only, multiply preserves wall lighting */}
       <div
-        className="absolute inset-0"
+        className="absolute inset-0 pointer-events-none"
         style={{
           backgroundColor: colour.hex,
           mixBlendMode: "multiply",
           opacity,
           clipPath: wallClip,
-          maskImage: wallClip ? undefined : fallbackMask,
-          WebkitMaskImage: wallClip ? undefined : fallbackMask,
-          transition: "background-color .11s linear, opacity .14s ease",
+          transition: "background-color .11s linear, clip-path .18s ease",
         }}
       />
-      {/* sheen overlay – satin / gloss, also clipped to wall */}
+      {/* Sheen highlight for satin / gloss, clipped to same wall polygon */}
       {sheen > 0 && (
         <div
           className="absolute inset-0 pointer-events-none"
@@ -909,8 +901,6 @@ function VisualizerCanvas({ room, colour, finish }:{
             background: `linear-gradient(116deg, rgba(255,255,255,${sheen}) 0%, transparent 34%, transparent 64%, rgba(255,255,255,${sheen*0.55}) 100%)`,
             mixBlendMode: "screen",
             clipPath: wallClip,
-            maskImage: wallClip ? undefined : "linear-gradient(180deg, black 10%, black 74%, transparent 90%)",
-            WebkitMaskImage: wallClip ? undefined : "linear-gradient(180deg, black 10%, black 74%, transparent 90%)",
           }}
         />
       )}
@@ -943,10 +933,10 @@ function BeforeAfterSlider({ room, colour, finish }:{
     setPos((x / r.width) * 100);
   };
 
-  const opacity = finish==="Matte" ? 0.55 : finish==="Eggshell" ? 0.52 : finish==="Satin" ? 0.5 : 0.46;
-  const sliderClipId = `wall-slider-${room.id}`;
-  const wallClip = room.wallMask ? `url(#${sliderClipId})` : undefined;
-  const fallbackMask = "linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 10%, rgba(0,0,0,1) 75%, rgba(0,0,0,0) 92%)";
+  const opacity = finish==="Matte" ? 0.54 : finish==="Eggshell" ? 0.51 : finish==="Satin" ? 0.49 : 0.45;
+  const sheen   = finish==="Matte" ? 0    : finish==="Eggshell" ? 0.07 : finish==="Satin" ? 0.14 : 0.27;
+  const wallClip = room.wallMask ? wallMaskToCSS(room.wallMask)
+    : "polygon(0% 8%, 100% 8%, 100% 72%, 0% 72%)";
 
   return (
     <div
@@ -959,28 +949,26 @@ function BeforeAfterSlider({ room, colour, finish }:{
       onTouchMove={e=> move(e.touches[0].clientX)}
       aria-label="Before after slider"
     >
-      {room.wallMask && (
-        <svg style={{ position:"absolute", width:0, height:0, overflow:"hidden" }} aria-hidden>
-          <defs>
-            <clipPath id={sliderClipId} clipPathUnits="objectBoundingBox">
-              <polygon points={room.wallMask} />
-            </clipPath>
-          </defs>
-        </svg>
-      )}
-      {/* before */}
+      {/* before — original photo, full width */}
       <img src={room.photo} alt="before" className="absolute inset-0 w-full h-full object-cover" draggable={false} />
-      {/* after clipped to slider position */}
+      {/* after — photo + paint overlay, clipped to right side of slider handle */}
       <div className="absolute inset-0" style={{ clipPath:`inset(0 0 0 ${pos}%)` }}>
         <img src={room.photo} alt="after base" className="absolute inset-0 w-full h-full object-cover" draggable={false}/>
-        <div className="absolute inset-0" style={{
+        {/* paint colour restricted to wall polygon */}
+        <div className="absolute inset-0 pointer-events-none" style={{
           backgroundColor: colour.hex,
           mixBlendMode:"multiply",
           opacity,
           clipPath: wallClip,
-          maskImage: wallClip ? undefined : fallbackMask,
-          WebkitMaskImage: wallClip ? undefined : fallbackMask,
         }}/>
+        {/* sheen for satin/gloss */}
+        {sheen > 0 && (
+          <div className="absolute inset-0 pointer-events-none" style={{
+            background:`linear-gradient(116deg, rgba(255,255,255,${sheen}) 0%, transparent 34%, transparent 64%, rgba(255,255,255,${sheen*0.55}) 100%)`,
+            mixBlendMode:"screen",
+            clipPath: wallClip,
+          }}/>
+        )}
       </div>
       {/* divider */}
       <div className="absolute top-0 bottom-0" style={{ left:`${pos}%`, width:"2px", background:"#F8F4EF", boxShadow:"0 0 18px rgba(0,0,0,.55)"}}/>

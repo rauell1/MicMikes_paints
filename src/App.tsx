@@ -100,7 +100,7 @@ export default function App(){
   /* UI state */
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [activePage, setActivePage] = useState("home");
   const [toast, setToast] = useState("");
 
   const showToast = (m:string)=>{ setToast(m); setTimeout(()=>setToast(""), 2100); };
@@ -152,12 +152,15 @@ export default function App(){
     setCart(cs=> cs.filter(c=> key !== `${c.productId}|${c.colourId}|${c.size}|${c.finish}`));
   };
 
-  /* smooth scroll */
-  const scrollTo = (id:string)=>{
-    setMobileNavOpen(false);
-    const el = document.getElementById(id);
-    if(el) el.scrollIntoView({ behavior:"smooth", block:"start" });
-  };
+  /* navigate — tab on mobile, smooth scroll on desktop */
+  const navigate = useCallback((id: string) => {
+    setActivePage(id);
+    if (window.innerWidth >= 1024) {
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+    }
+  }, []);
 
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor:"#F8F4EF", color:"#2B2B2E", fontFamily:`"Inter", system-ui, -apple-system, Segoe UI, Roboto, sans-serif` }}>
@@ -193,6 +196,9 @@ export default function App(){
         @keyframes fade-in { from{ opacity:0 } to{ opacity:1 } }
         .sheet-panel{ animation: sheet-in .24s cubic-bezier(.22,1,.36,1); }
         .fade{ animation: fade-in .18s ease-out; }
+        /* page transitions */
+        @keyframes pgIn { from{ opacity:0; transform:translateY(10px); } to{ opacity:1; transform:translateY(0); } }
+        @media (max-width:1023px){ .pg-enter{ animation: pgIn .26s cubic-bezier(.22,1,.36,1); } }
       `}</style>
 
       {/* 1. Announcement bar */}
@@ -208,7 +214,7 @@ export default function App(){
       <header className="sticky top-0 z-40 border-b" style={{ backgroundColor:"rgba(248,244,239,0.93)", backdropFilter:"blur(10px)", borderColor:"#e8dcc7" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-8 h-[68px] flex items-center justify-between gap-4">
           {/* Logo */}
-          <button onClick={()=>scrollTo("home")} className="flex items-center gap-[11px] min-w-0">
+          <button onClick={()=>navigate("home")} className="flex items-center gap-[11px] min-w-0">
             <div className="w-[41px] h-[41px] rounded-[13px] flex items-center justify-center text-white" style={{ backgroundColor:"#B84A32" }} aria-label="MicMikes Paints">
               {/* Palette icon */}
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -233,7 +239,7 @@ export default function App(){
               ["Visualizer","visualizer"],
               ["Shop","shop"],
             ].map(([label,id])=>(
-              <button key={id} onClick={()=>scrollTo(id)} className="hover:opacity-70 transition-opacity">{label}</button>
+              <button key={id} onClick={()=>navigate(id)} className="hover:opacity-70 transition-opacity">{label}</button>
             ))}
           </nav>
 
@@ -253,42 +259,13 @@ export default function App(){
                 >{cartCount}</span>
               )}
             </button>
-            <button
-              onClick={()=>setMobileNavOpen(v=>!v)}
-              className="lg:hidden w-10 h-10 rounded-full flex items-center justify-center bg-white border"
-              style={{ borderColor:"#e3d5be" }}
-              aria-label="Menu"
-              aria-expanded={mobileNavOpen}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                {mobileNavOpen
-                  ? <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>
-                  : <><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></>}
-              </svg>
-            </button>
           </div>
         </div>
-
-        {/* mobile nav */}
-        {mobileNavOpen && (
-          <div className="lg:hidden border-t fade" style={{ borderColor:"#e8dcc7", background:"rgba(248,244,239,.98)" }}>
-            <div className="px-4 py-3 flex flex-wrap gap-2 text-[14px] font-[500]">
-              {[
-                ["Home","home"],
-                ["Colours","colours"],
-                ["Visualizer","visualizer"],
-                ["Shop","shop"],
-              ].map(([label,id])=>(
-                <button key={id} onClick={()=>scrollTo(id)} className="chip">{label}</button>
-              ))}
-            </div>
-          </div>
-        )}
       </header>
 
-      <main className="flex-1">
+      <main className="flex-1 pb-[72px] lg:pb-0" style={{ paddingBottom:"calc(72px + env(safe-area-inset-bottom, 0px))" }}>
         {/* 3. Hero */}
-        <section id="home" className="relative">
+        <section id="home" className={`relative ${activePage==="home" ? "pg-enter" : "hidden lg:block"}`}>
           <div className="max-w-7xl mx-auto px-4 sm:px-8 pt-10 sm:pt-16 pb-10 lg:pb-16">
             <div className="grid lg:grid-cols-12 gap-8 lg:gap-10 items-center">
               <div className="lg:col-span-6">
@@ -305,10 +282,10 @@ export default function App(){
                   Keekorok paint system — 20 curated Kenyan shades, M-Pesa checkout, next-day Nairobi delivery. Premium emulsion, eggshell, satin & semi-gloss.
                 </p>
                 <div className="flex flex-wrap gap-3 mt-7">
-                  <button onClick={()=>scrollTo("colours")} className="btn btn-primary px-[22px] py-[13px] text-[14.5px]">
+                  <button onClick={()=>navigate("colours")} className="btn btn-primary px-[22px] py-[13px] text-[14.5px]">
                     Find Your Perfect Shade →
                   </button>
-                  <button onClick={()=>scrollTo("visualizer")} className="btn btn-ghost px-[22px] py-[13px] text-[14.5px]">
+                  <button onClick={()=>navigate("visualizer")} className="btn btn-ghost px-[22px] py-[13px] text-[14.5px]">
                     Open Visualizer
                   </button>
                 </div>
@@ -344,14 +321,14 @@ export default function App(){
                     {colours.slice(6,14).map(c=>(
                       <button
                         key={c.id}
-                        onClick={()=>{ setVizColourId(c.id); scrollTo("visualizer"); }}
+                        onClick={()=>{ setVizColourId(c.id); navigate("visualizer"); }}
                         title={c.name}
                         aria-label={c.name}
                         className="swatch"
                         style={{ backgroundColor:c.hex }}
                       />
                     ))}
-                    <button onClick={()=>scrollTo("colours")} className="text-[12.5px] font-[600] px-3 py-[8px] rounded-full" style={{ color:"#4FB9B0" }}>
+                    <button onClick={()=>navigate("colours")} className="text-[12.5px] font-[600] px-3 py-[8px] rounded-full" style={{ color:"#4FB9B0" }}>
                       +12 more →
                     </button>
                   </div>
@@ -361,38 +338,8 @@ export default function App(){
           </div>
         </section>
 
-        {/* 4. Featured Colours */}
-        <section id="featured" className="py-10 sm:py-14 border-t" style={{ borderColor:"#eadec8", background:"#fffaf3" }}>
-          <div className="max-w-7xl mx-auto px-4 sm:px-8">
-            <div className="flex items-end justify-between gap-3 mb-5">
-              <h2 className="font-display text-[28px] sm:text-[32px]">Featured Keekorok Shades</h2>
-              <button onClick={()=>scrollTo("colours")} className="text-[13.5px] font-[600]" style={{ color:"#B84A32" }}>See all 20 →</button>
-            </div>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-              {[0,7,12,9,5,4,11,15].map(i=>colours[i]).filter(Boolean).map(c=>(
-                <button
-                  key={c.id}
-                  onClick={()=>{ setVizColourId(c.id); scrollTo("visualizer"); }}
-                  className="mm-card rounded-[20px] overflow-hidden text-left group hover:mm-shadow transition-shadow"
-                >
-                  <div className="h-[110px] relative" style={{ backgroundColor:c.hex }}>
-                    <span className="absolute top-3 right-3 text-[10.5px] px-[9px] py-[4px] rounded-full bg-white/90 font-[600]">{c.family}</span>
-                  </div>
-                  <div className="p-[14px]">
-                    <div className="font-display text-[17px]">{c.name}</div>
-                    <div className="flex items-center justify-between mt-1 text-[12px]">
-                      <span className="mm-muted">{c.family}</span>
-                      <span className="font-mono2">{c.hex}</span>
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
-
         {/* 5. Colour Explorer */}
-        <section id="colours" className="py-12 sm:py-16">
+        <section id="colours" className={`py-12 sm:py-16 ${activePage==="colours" ? "pg-enter" : "hidden lg:block"}`}>
           <div className="max-w-7xl mx-auto px-4 sm:px-8">
             <div className="max-w-[760px] mb-6">
               <h2 className="font-display text-[30px] sm:text-[36px]">Colour Explorer</h2>
@@ -437,7 +384,7 @@ export default function App(){
         </section>
 
         {/* 6. Room Visualizer */}
-        <section id="visualizer" className="py-12 sm:py-16" style={{ backgroundColor:"#2B2B2E", color:"#F8F4EF" }}>
+        <section id="visualizer" className={`py-12 sm:py-16 ${activePage==="visualizer" ? "pg-enter" : "hidden lg:block"}`} style={{ backgroundColor:"#2B2B2E", color:"#F8F4EF" }}>
           <div className="max-w-7xl mx-auto px-4 sm:px-8">
             <div className="flex flex-wrap items-end justify-between gap-3 mb-6">
               <div>
@@ -555,7 +502,7 @@ export default function App(){
         </section>
 
         {/* 7. Shop */}
-        <section id="shop" className="py-12 sm:py-16">
+        <section id="shop" className={`py-12 sm:py-16 ${activePage==="shop" ? "pg-enter" : "hidden lg:block"}`}>
           <div className="max-w-7xl mx-auto px-4 sm:px-8">
             <div className="flex items-end justify-between gap-3 mb-6">
               <div>
@@ -657,7 +604,7 @@ export default function App(){
       </main>
 
       {/* 10. Footer — sticky to bottom via flex flex-col on root */}
-      <footer className="mt-auto" style={{ backgroundColor:"#2B2B2E", color:"#F8F4EF" }}>
+      <footer className={`mt-auto ${activePage==="shop" ? "" : "hidden lg:block"}`} style={{ backgroundColor:"#2B2B2E", color:"#F8F4EF" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-8 py-12 grid md:grid-cols-4 gap-10 text-[13.5px]">
           <div>
             <div className="font-display text-[22px]">MicMikes Paints</div>
@@ -668,9 +615,9 @@ export default function App(){
           </div>
           <div className="space-y-[10px]" style={{ color:"#d6cdc0" }}>
             <div className="font-[600] text-[#F8F4EF] mb-1">Explore</div>
-            <button onClick={()=>scrollTo("colours")} className="block hover:opacity-80 text-left">Colours</button>
-            <button onClick={()=>scrollTo("visualizer")} className="block hover:opacity-80 text-left">Visualizer</button>
-            <button onClick={()=>scrollTo("shop")} className="block hover:opacity-80 text-left">Shop</button>
+            <button onClick={()=>navigate("colours")} className="block hover:opacity-80 text-left">Colours</button>
+            <button onClick={()=>navigate("visualizer")} className="block hover:opacity-80 text-left">Visualizer</button>
+            <button onClick={()=>navigate("shop")} className="block hover:opacity-80 text-left">Shop</button>
           </div>
           <div className="space-y-[10px]" style={{ color:"#d6cdc0" }}>
             <div className="font-[600] text-[#F8F4EF] mb-1">Keekorok</div>
@@ -721,7 +668,7 @@ export default function App(){
                 <div className="text-center py-14">
                   <div className="text-[16px] font-[600] mb-2">Cart is empty</div>
                   <p className="mm-muted text-[13.5px] mb-5">Add Keekorok colours to get started.</p>
-                  <button onClick={()=>{ setCartOpen(false); scrollTo("shop"); }} className="btn btn-primary px-5 py-[11px] text-[13.5px]">Shop Keekorok</button>
+                  <button onClick={()=>{ setCartOpen(false); navigate("shop"); }} className="btn btn-primary px-5 py-[11px] text-[13.5px]">Shop Keekorok</button>
                 </div>
               ) : cart.map(item=>{
                 const key = `${item.productId}|${item.colourId}|${item.size}|${item.finish}`;
@@ -796,10 +743,72 @@ export default function App(){
         />
       )}
 
+      {/* Mobile bottom tab bar */}
+      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-[60]" aria-label="Main navigation">
+        <div style={{
+          background:"rgba(248,244,239,0.97)",
+          backdropFilter:"blur(24px) saturate(180%)",
+          WebkitBackdropFilter:"blur(24px) saturate(180%)",
+          borderTop:"1px solid rgba(232,220,199,0.7)",
+          paddingBottom:"env(safe-area-inset-bottom, 0px)",
+        }}>
+          <div className="flex items-stretch h-[60px]">
+            {([
+              { id:"home",       label:"Home",      icon:(
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/>
+                </svg>
+              )},
+              { id:"colours",    label:"Colours",   icon:(
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8z"/>
+                  <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" stroke="none"/>
+                  <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" stroke="none"/>
+                  <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" stroke="none"/>
+                </svg>
+              )},
+              { id:"visualizer", label:"Visualize", icon:(
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+              )},
+              { id:"shop",       label:"Shop",      icon:(
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M6 6h15l-1.5 9h-12z"/><path d="M6 6l-2-3H2"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/>
+                </svg>
+              )},
+            ] as const).map(tab => {
+              const active = activePage === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={()=>navigate(tab.id)}
+                  className="flex-1 flex flex-col items-center justify-center gap-[3px] relative transition-colors focus:outline-none"
+                  aria-label={tab.label}
+                  aria-current={active ? "page" : undefined}
+                >
+                  {active && (
+                    <span className="absolute inset-x-2 inset-y-[6px] rounded-[12px] fade"
+                      style={{ background:"rgba(184,74,50,0.09)" }} />
+                  )}
+                  <span style={{ color: active ? "#B84A32" : "#9b9589", position:"relative", transition:"color .15s" }}>
+                    {tab.icon}
+                  </span>
+                  <span className="relative text-[10px] font-[700] tracking-[0.01em]"
+                    style={{ color: active ? "#B84A32" : "#9b9589", transition:"color .15s" }}>
+                    {tab.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </nav>
+
       {/* toast */}
       {toast && (
-        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[90] px-[18px] py-[11px] rounded-full text-white text-[13px] font-[600] mm-shadow"
-          style={{ background:"#2B2B2E" }}>
+        <div className="fixed left-1/2 -translate-x-1/2 z-[90] px-[18px] py-[11px] rounded-full text-white text-[13px] font-[600] mm-shadow lg:bottom-5"
+          style={{ background:"#2B2B2E", bottom:"calc(76px + env(safe-area-inset-bottom, 0px))" }}>
           {toast}
         </div>
       )}
@@ -809,8 +818,8 @@ export default function App(){
         href="https://wa.me/254712345678?text=Hi%20MicMikes%20Paints%20%E2%80%94%20I%27d%20like%20to%20order%20Keekorok%20paints"
         target="_blank" rel="noopener noreferrer"
         aria-label="Chat on WhatsApp"
-        className="fixed bottom-6 right-5 z-[85] w-14 h-14 rounded-full flex items-center justify-center mm-shadow"
-        style={{ background:"#25D366" }}
+        className="fixed right-5 z-[85] w-14 h-14 rounded-full flex items-center justify-center mm-shadow lg:bottom-6"
+        style={{ background:"#25D366", bottom:"calc(80px + env(safe-area-inset-bottom, 0px))" }}
       >
         <svg width="28" height="28" viewBox="0 0 24 24" fill="white" aria-hidden="true">
           <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>

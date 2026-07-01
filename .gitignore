@@ -37,3 +37,12 @@ task.md
 implementation_plan.md
 walkthrough.md
 scratch/
+
+.vercel
+.env
+.env.local
+.env.*.local
+ANALYSIS.md
+
+MicMikes_paints/
+.claude/

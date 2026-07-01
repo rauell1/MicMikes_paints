@@ -13,26 +13,16 @@ type Tab = "colours" | "products" | "rooms" | "orders";
 const FAMILIES = ["Neutrals","Warm Earth","Cool Green","Blue","Red & Terracotta","Yellow & Gold"];
 const CATEGORIES = ["Paint","Primer","Supplies"];
 const STATUSES   = ["pending","paid","processing","shipped","delivered","cancelled"];
-const TOKEN_KEY  = "mm-admin-token";
-
 const kes = (n: number) => `KES ${n.toLocaleString("en-KE")}`;
 const slug = (s: string) => s.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"");
-
-/* ─── auth helpers ─── */
-const getToken  = () => localStorage.getItem(TOKEN_KEY);
-const setToken  = (t: string) => localStorage.setItem(TOKEN_KEY, t);
-const clearToken= () => localStorage.removeItem(TOKEN_KEY);
 
 async function api(path: string, opts?: RequestInit) {
   const res = await fetch(path, {
     ...opts,
-    headers: {
-      "Content-Type": "application/json",
-      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
-      ...(opts?.headers ?? {}),
-    },
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(opts?.headers ?? {}) },
   });
-  if (res.status === 401) { clearToken(); window.location.reload(); throw new Error("Session expired"); }
+  if (res.status === 401) { window.location.reload(); throw new Error("Session expired"); }
   if (!res.ok) { const t = await res.text(); throw new Error(t || `${res.status}`); }
   if (res.status === 204) return null;
   return res.json();
@@ -103,9 +93,24 @@ function StatusBadge({ s }: { s: string }) {
    ROOT
 ════════════════════════════════════════════════ */
 export default function AdminApp() {
-  const [authed, setAuthed] = useState(!!getToken());
+  const [authed, setAuthed] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/login", { credentials: "include" })
+      .then(r => setAuthed(r.ok))
+      .catch(() => setAuthed(false));
+  }, []);
+
+  if (authed === null) return (
+    <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"#F8F4EF" }}>
+      <div style={{ width:32, height:32, border:"3px solid #ebe2d2", borderTopColor:"#B84A32", borderRadius:"50%", animation:"spin 0.7s linear infinite" }} />
+    </div>
+  );
   if (!authed) return <LoginPage onSuccess={() => setAuthed(true)} />;
-  return <Dashboard onLogout={() => { clearToken(); setAuthed(false); }} />;
+  return <Dashboard onLogout={async () => {
+    await fetch("/api/admin/login", { method:"DELETE", credentials:"include" }).catch(() => {});
+    setAuthed(false);
+  }} />;
 }
 
 /* ─── Login ─── */
@@ -117,11 +122,13 @@ function LoginPage({ onSuccess }: { onSuccess: () => void }) {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setErr(""); setLoading(true);
     try {
-      const { token } = await fetch("/api/admin/login", {
-        method:"POST", headers:{"Content-Type":"application/json"},
+      const r = await fetch("/api/admin/login", {
+        method:"POST", credentials:"include",
+        headers:{"Content-Type":"application/json"},
         body: JSON.stringify({ password: pw }),
-      }).then(r => { if (!r.ok) throw new Error(); return r.json(); });
-      setToken(token); onSuccess();
+      });
+      if (!r.ok) throw new Error();
+      onSuccess();
     } catch { setErr("Wrong password — try again"); }
     finally   { setLoading(false); }
   };

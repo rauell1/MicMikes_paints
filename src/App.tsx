@@ -155,11 +155,24 @@ export default function App(){
   /* navigate — tab on mobile, smooth scroll on desktop */
   const navigate = useCallback((id: string) => {
     setActivePage(id);
-    if (window.innerWidth >= 1024) {
+    if (window.matchMedia("(min-width: 1024px)").matches) {
       document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
     } else {
       window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
     }
+  }, []);
+
+  /* sync active tab with scroll position on desktop */
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    if (!mq.matches) return;
+    const ids = ["home", "colours", "visualizer", "shop"];
+    const observer = new IntersectionObserver(
+      entries => { entries.forEach(e => { if (e.isIntersecting) setActivePage(e.target.id); }); },
+      { threshold: 0.35 }
+    );
+    ids.forEach(id => { const el = document.getElementById(id); if (el) observer.observe(el); });
+    return () => observer.disconnect();
   }, []);
 
   return (
@@ -199,6 +212,7 @@ export default function App(){
         /* page transitions */
         @keyframes pgIn { from{ opacity:0; transform:translateY(10px); } to{ opacity:1; transform:translateY(0); } }
         @media (max-width:1023px){ .pg-enter{ animation: pgIn .26s cubic-bezier(.22,1,.36,1); } }
+        @keyframes shimmer { from{ background-position:200% 0; } to{ background-position:-200% 0; } }
       `}</style>
 
       {/* 1. Announcement bar */}
@@ -362,7 +376,15 @@ export default function App(){
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-[14px] sm:gap-4">
-              {filteredColours.map(c=>(
+              {dataLoading ? Array.from({length:10}).map((_,i)=>(
+                <div key={i} className="mm-card rounded-[18px] overflow-hidden">
+                  <div className="h-[108px] sm:h-[120px]" style={{ background:"linear-gradient(90deg,#ebe2d2 25%,#f5ede0 50%,#ebe2d2 75%)", backgroundSize:"200% 100%", animation:"shimmer 1.4s infinite" }} />
+                  <div className="p-[12px] space-y-2">
+                    <div className="h-3 rounded-full w-3/4" style={{ background:"#ebe2d2" }} />
+                    <div className="h-2 rounded-full w-1/2" style={{ background:"#ebe2d2" }} />
+                  </div>
+                </div>
+              )) : filteredColours.map(c=>(
                 <button
                   key={c.id}
                   onClick={()=>{ setVizColourId(c.id); setShopColourId(c.id); showToast(`${c.name} selected`); }}
@@ -380,6 +402,7 @@ export default function App(){
                 </button>
               ))}
             </div>
+
           </div>
         </section>
 

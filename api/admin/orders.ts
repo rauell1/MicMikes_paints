@@ -2,9 +2,8 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { neon } from "@neondatabase/serverless";
 import crypto from "crypto";
 
-function verifyAdminToken(authHeader: string | undefined): boolean {
-  if (!authHeader?.startsWith("Bearer ")) return false;
-  const token = authHeader.slice(7);
+function verifyAdminToken(token: string | undefined): boolean {
+  if (!token) return false;
   try {
     const decoded = Buffer.from(token, "base64url").toString();
     const lastDot = decoded.lastIndexOf(".");
@@ -21,7 +20,7 @@ function verifyAdminToken(authHeader: string | undefined): boolean {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (!verifyAdminToken(req.headers.authorization))
+  if (!verifyAdminToken(req.cookies?.["mm-admin-token"] as string | undefined))
     return res.status(401).json({ error: "Unauthorized" });
 
   const sql = neon(process.env.DATABASE_URL!);

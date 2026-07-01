@@ -855,58 +855,41 @@ export default function App(){
   );
 }
 
-/* ── Convert 0–1 wall mask to an inline SVG mask-image with feathered edges ──
-   Using mask-image + feGaussianBlur instead of clip-path gives soft, paint-like
-   transitions at wall boundaries rather than hard polygon lines. */
-function wallMaskToMask(mask: string, blur = 1.1): string {
+/* ── Convert 0–1 wall mask coordinates to a CSS clip-path polygon ──
+   clip-path is the most reliable cross-browser approach for HTML elements. */
+function wallMaskToCSS(mask: string): string {
   const pts = mask.trim().split(/\s+/).map(p => {
     const [x, y] = p.split(",").map(Number);
-    return `${(x * 100).toFixed(2)},${(y * 100).toFixed(2)}`;
-  }).join(" ");
-  const svg = [
-    `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'>`,
-    `<defs><filter id='f' x='-4%' y='-4%' width='108%' height='108%'>`,
-    `<feGaussianBlur stdDeviation='${blur}'/>`,
-    `</filter></defs>`,
-    `<polygon points='${pts}' fill='white' filter='url(#f)'/>`,
-    `</svg>`,
-  ].join("");
-  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+    return `${(x * 100).toFixed(2)}% ${(y * 100).toFixed(2)}%`;
+  });
+  return `polygon(${pts.join(", ")})`;
 }
 
 /* ── Visualizer Canvas ── */
 function VisualizerCanvas({ room, colour, finish }:{
   room: Room, colour: Colour, finish: Finish
 }){
-  const opacity = finish==="Matte" ? 0.54 : finish==="Eggshell" ? 0.51 : finish==="Satin" ? 0.49 : 0.45;
+  const opacity = finish==="Matte" ? 0.82 : finish==="Eggshell" ? 0.78 : finish==="Satin" ? 0.74 : 0.70;
   const sheen   = finish==="Matte" ? 0    : finish==="Eggshell" ? 0.07 : finish==="Satin" ? 0.14 : 0.27;
 
-  const wallMask = room.wallMask
-    ? wallMaskToMask(room.wallMask)
-    : wallMaskToMask("0,0.08 1,0.08 1,0.72 0,0.72");
-  const maskStyle = {
-    WebkitMaskImage: wallMask,
-    maskImage: wallMask,
-    WebkitMaskSize: "100% 100%",
-    maskSize: "100% 100%",
-    WebkitMaskRepeat: "no-repeat",
-    maskRepeat: "no-repeat",
-  } as React.CSSProperties;
+  const wallClip = room.wallMask
+    ? wallMaskToCSS(room.wallMask)
+    : "polygon(0% 13%, 100% 13%, 100% 62%, 0% 62%)";
 
   return (
     <div className="relative w-full">
       <img src={room.photo} alt={room.name}
         className="w-full h-[380px] sm:h-[500px] object-cover block"
       />
-      {/* Paint colour — SVG mask feathers edges for a natural paint-on-wall look */}
+      {/* Paint — clip-path restricts to wall polygon; color blend changes wall hue like real paint */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
           backgroundColor: colour.hex,
-          mixBlendMode: "multiply",
+          mixBlendMode: "color",
           opacity,
-          transition: "background-color .11s linear",
-          ...maskStyle,
+          clipPath: wallClip,
+          transition: "background-color .11s linear, clip-path .18s ease",
         }}
       />
       {/* Sheen highlight for satin / gloss */}
@@ -916,7 +899,7 @@ function VisualizerCanvas({ room, colour, finish }:{
           style={{
             background: `linear-gradient(116deg, rgba(255,255,255,${sheen}) 0%, transparent 34%, transparent 64%, rgba(255,255,255,${sheen*0.55}) 100%)`,
             mixBlendMode: "screen",
-            ...maskStyle,
+            clipPath: wallClip,
           }}
         />
       )}
@@ -949,19 +932,11 @@ function BeforeAfterSlider({ room, colour, finish }:{
     setPos((x / r.width) * 100);
   };
 
-  const opacity = finish==="Matte" ? 0.54 : finish==="Eggshell" ? 0.51 : finish==="Satin" ? 0.49 : 0.45;
+  const opacity = finish==="Matte" ? 0.82 : finish==="Eggshell" ? 0.78 : finish==="Satin" ? 0.74 : 0.70;
   const sheen   = finish==="Matte" ? 0    : finish==="Eggshell" ? 0.07 : finish==="Satin" ? 0.14 : 0.27;
-  const wallMask = room.wallMask
-    ? wallMaskToMask(room.wallMask)
-    : wallMaskToMask("0,0.08 1,0.08 1,0.72 0,0.72");
-  const maskStyle = {
-    WebkitMaskImage: wallMask,
-    maskImage: wallMask,
-    WebkitMaskSize: "100% 100%",
-    maskSize: "100% 100%",
-    WebkitMaskRepeat: "no-repeat",
-    maskRepeat: "no-repeat",
-  } as React.CSSProperties;
+  const wallClip = room.wallMask
+    ? wallMaskToCSS(room.wallMask)
+    : "polygon(0% 13%, 100% 13%, 100% 62%, 0% 62%)";
 
   return (
     <div
@@ -979,19 +954,19 @@ function BeforeAfterSlider({ room, colour, finish }:{
       {/* after — photo + paint overlay, clipped to right side of slider handle */}
       <div className="absolute inset-0" style={{ clipPath:`inset(0 0 0 ${pos}%)` }}>
         <img src={room.photo} alt="after base" className="absolute inset-0 w-full h-full object-cover" draggable={false}/>
-        {/* paint colour restricted to wall polygon, feathered edges */}
+        {/* paint — color blend mode changes wall hue like real paint */}
         <div className="absolute inset-0 pointer-events-none" style={{
           backgroundColor: colour.hex,
-          mixBlendMode:"multiply",
+          mixBlendMode:"color",
           opacity,
-          ...maskStyle,
+          clipPath: wallClip,
         }}/>
         {/* sheen for satin/gloss */}
         {sheen > 0 && (
           <div className="absolute inset-0 pointer-events-none" style={{
             background:`linear-gradient(116deg, rgba(255,255,255,${sheen}) 0%, transparent 34%, transparent 64%, rgba(255,255,255,${sheen*0.55}) 100%)`,
             mixBlendMode:"screen",
-            ...maskStyle,
+            clipPath: wallClip,
           }}/>
         )}
       </div>

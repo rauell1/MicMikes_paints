@@ -101,8 +101,19 @@ def segment_image(room):
     wall_mask_img.save(raw_path)
     print(f"  Saved raw mask -> {raw_path}")
 
-    # Feather edges to avoid hard paint lines
-    feathered = wall_mask_img.filter(ImageFilter.GaussianBlur(radius=3))
+    # --- Clean up jagged/blocky edges ---
+    # 1. Morphological close: dilate then erode to fill small gaps and smooth outline
+    from PIL import ImageFilter as IF
+    close_radius = max(4, orig_w // 200)   # ~8px at 1600px wide
+    dilated = wall_mask_img.filter(IF.MaxFilter(close_radius * 2 + 1))
+    closed  = dilated.filter(IF.MinFilter(close_radius * 2 + 1))
+
+    # 2. Large Gaussian blur creates a natural soft paint edge (~12px at 1600px)
+    blur_radius = max(8, orig_w // 130)
+    feathered = closed.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+
+    print(f"  Edge smoothing: close_radius={close_radius}px, blur_radius={blur_radius}px")
+
     final_path = f"api/masks/{room_id}_mask.png"
     feathered.save(final_path)
     print(f"  Saved feathered mask -> {final_path}")

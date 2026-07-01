@@ -1,140 +1,122 @@
+"""
+Wall segmentation script using local HuggingFace transformers (no API calls needed).
+Runs nvidia/segformer-b5-finetuned-ade-640-640 on CPU locally.
+Downloads model once (~120MB), caches in ~/.cache/huggingface/
+"""
+
 import os
 import io
-import time
-import base64
 import requests
 from PIL import Image, ImageFilter
 import numpy as np
+import torch
+from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
 
-# Create the masks directory inside api/
+# ADE20K wall class index
+ADE20K_WALL_INDEX = 0  # 'wall' is class 0 in ADE20K-150
+
 os.makedirs("api/masks", exist_ok=True)
 
-# The 5 room images from the database
 ROOMS = [
     {
-        "id": "nairobi_classic",
+        "id": "026feade-527d-42aa-a6fb-49055c05551d",
+        "name": "Nairobi Classic",
         "url": "https://images.pexels.com/photos/1571460/pexels-photo-1571460.jpeg?auto=compress&cs=tinysrgb&w=1600"
     },
     {
-        "id": "mombasa_suite",
+        "id": "a7417cd8-8977-4a06-9d19-f158fe8ec952",
+        "name": "Mombasa Suite",
         "url": "https://images.pexels.com/photos/271816/pexels-photo-271816.jpeg?auto=compress&cs=tinysrgb&w=1600"
     },
     {
-        "id": "karen_bedroom",
+        "id": "10e15faf-1ccf-4c81-9db7-3a467164edab",
+        "name": "Karen Bedroom",
         "url": "https://images.pexels.com/photos/6186819/pexels-photo-6186819.jpeg?auto=compress&cs=tinysrgb&w=1600"
     },
     {
-        "id": "coastal_kitchen",
+        "id": "ee963068-197b-42c3-ad77-63f3fdf8c7db",
+        "name": "Coastal Kitchen",
         "url": "https://images.pexels.com/photos/7040696/pexels-photo-7040696.jpeg?auto=compress&cs=tinysrgb&w=1600"
     },
     {
-        "id": "nairobi_living",
+        "id": "b91aeb30-b245-4cf0-affc-5a04c8b0c2fd",
+        "name": "Nairobi Living Room",
         "url": "https://images.pexels.com/photos/8146213/pexels-photo-8146213.jpeg?auto=compress&cs=tinysrgb&w=1600"
     }
 ]
 
-# Hugging Face Serverless Inference API URL
-HF_API_URL = "https://api-inference.huggingface.co/models/nvidia/segformer-b5-finetuned-ade-640-640"
+print("Loading SegFormer-B5 model (downloads ~120MB on first run)...")
+processor = SegformerImageProcessor.from_pretrained("nvidia/segformer-b5-finetuned-ade-640-640")
+model = SegformerForSemanticSegmentation.from_pretrained("nvidia/segformer-b5-finetuned-ade-640-640")
+model.eval()
+print("Model loaded.\n")
 
-# Optional token, if rate limited, can be passed.
-HF_TOKEN = os.environ.get("HF_TOKEN", "")
 
-headers = {}
-if HF_TOKEN:
-    headers["Authorization"] = f"Bearer {HF_TOKEN}"
+def segment_image(room):
+    room_id = room["id"]
+    room_name = room["name"]
+    img_url = room["url"]
+    print(f"--- {room_name} ---")
 
-def segment_image(img_url, room_id):
-    print(f"Processing room {room_id} from {img_url}...")
-    
-    # Download original image
-    resp = requests.get(img_url)
+    # Download image
+    resp = requests.get(img_url, timeout=30)
     if resp.status_code != 200:
-        print(f"Failed to download image for {room_id}: HTTP {resp.status_code}")
+        print(f"  Failed to download image: HTTP {resp.status_code}")
         return False
-        
-    img_data = resp.content
-    orig_img = Image.open(io.BytesIO(img_data))
+
+    orig_img = Image.open(io.BytesIO(resp.content)).convert("RGB")
     orig_w, orig_h = orig_img.size
-    print(f"Original image size: {orig_w}x{orig_h}")
-    
-    # Send to Hugging Face
-    print("Calling Hugging Face SegFormer-B5 API...")
-    for attempt in range(5):
-        hf_resp = requests.post(HF_API_URL, headers=headers, data=img_data)
-        if hf_resp.status_code == 200:
-            result = hf_resp.json()
-            break
-        elif hf_resp.status_code == 503:
-            # Model is loading, wait and retry
-            print(f"Model is loading (503), retrying in 15 seconds... (attempt {attempt+1}/5)")
-            time.sleep(15)
-        else:
-            print(f"HF API returned error {hf_resp.status_code}: {hf_resp.text}")
-            return False
-    else:
-        print("HF API failed after max retries due to 503 loading status.")
-        return False
+    print(f"  Image size: {orig_w}x{orig_h}")
 
-    # Extract wall mask
-    print("Extracting wall masks...")
-    wall_masks = []
-    
-    # HF response is list of objects: [{"score": 0.9, "label": "wall", "mask": "base64..."}, ...]
-    if not isinstance(result, list):
-        print(f"Unexpected response format: {result}")
-        return False
+    # Run segmentation
+    print("  Running segmentation...")
+    inputs = processor(images=orig_img, return_tensors="pt")
+    with torch.no_grad():
+        outputs = model(**inputs)
 
-    for item in result:
-        label = item.get("label", "").lower()
-        # Segmenter labels on ADE20K are: 'wall', 'painting' (which might be inside wall, but let's keep wall)
-        if "wall" in label:
-            mask_b64 = item.get("mask")
-            if mask_b64:
-                mask_bytes = base64.b64decode(mask_b64)
-                mask_img = Image.open(io.BytesIO(mask_bytes)).convert("L")
-                wall_masks.append(mask_img)
-                print(f"Found mask segment: {label} with score {item.get('score')}")
+    # Upsample logits to original size
+    upsampled = torch.nn.functional.interpolate(
+        outputs.logits,
+        size=(orig_h, orig_w),
+        mode="bilinear",
+        align_corners=False
+    )
+    seg_map = upsampled.argmax(dim=1).squeeze().numpy()  # shape: (H, W)
 
-    if not wall_masks:
-        print("No wall segments found in Hugging Face output!")
-        # Print available labels for debugging
-        labels = [item.get("label") for item in result]
-        print(f"Available labels in image: {labels}")
-        return False
-        
-    # Combine wall masks if multiple segments found
-    combined_mask = Image.new("L", wall_masks[0].size, 0)
-    for w_mask in wall_masks:
-        combined_mask = Image.max(combined_mask, w_mask)
-        
-    # Resize mask to original image dimensions
-    combined_mask = combined_mask.resize((orig_w, orig_h), Image.Resampling.NEAREST)
-    
+    # Extract wall pixels (class 0) — binary mask
+    wall_mask_np = (seg_map == ADE20K_WALL_INDEX).astype(np.uint8) * 255
+
+    # Count wall pixels as sanity check
+    wall_pct = wall_mask_np.sum() / 255 / (orig_w * orig_h) * 100
+    print(f"  Wall coverage: {wall_pct:.1f}% of image")
+
+    if wall_pct < 1.0:
+        print(f"  WARNING: Very little wall detected ({wall_pct:.1f}%). Check the room photo.")
+
+    # Convert to PIL
+    wall_mask_img = Image.fromarray(wall_mask_np, mode="L")
+
     # Save raw mask
-    raw_mask_path = f"api/masks/{room_id}_mask_raw.png"
-    combined_mask.save(raw_mask_path)
-    print(f"Saved raw mask to {raw_mask_path}")
-    
-    # Post-process: apply a small blur/feathering to mask edges to prevent jagged paint lines
-    # Dilate/Erode could be done, but a Gaussian blur of 2-3px is a standard way to feather edges
-    feathered_mask = combined_mask.filter(ImageFilter.GaussianBlur(radius=2))
-    
-    mask_path = f"api/masks/{room_id}_mask.png"
-    feathered_mask.save(mask_path)
-    print(f"Saved feathered mask to {mask_path}")
+    raw_path = f"api/masks/{room_id}_mask_raw.png"
+    wall_mask_img.save(raw_path)
+    print(f"  Saved raw mask -> {raw_path}")
+
+    # Feather edges to avoid hard paint lines
+    feathered = wall_mask_img.filter(ImageFilter.GaussianBlur(radius=3))
+    final_path = f"api/masks/{room_id}_mask.png"
+    feathered.save(final_path)
+    print(f"  Saved feathered mask -> {final_path}")
     return True
 
+
 for room in ROOMS:
-    success = False
-    for attempt in range(3):
-        try:
-            success = segment_image(room["url"], room["id"])
-            if success:
-                break
-        except Exception as e:
-            print(f"Error on {room['id']} attempt {attempt+1}: {e}")
-            time.sleep(5)
-    if not success:
-        print(f"ERROR: Could not segment {room['id']}")
-    else:
-        print(f"Successfully processed {room['id']}\n")
+    try:
+        ok = segment_image(room)
+        if ok:
+            print(f"  Done: {room['name']}\n")
+        else:
+            print(f"  FAILED: {room['name']}\n")
+    except Exception as e:
+        print(f"  ERROR on {room['name']}: {e}\n")
+
+print("All rooms processed.")

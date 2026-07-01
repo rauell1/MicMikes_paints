@@ -858,7 +858,7 @@ export default function App(){
 /* ── Convert 0–1 wall mask to an inline SVG mask-image with feathered edges ──
    Using mask-image + feGaussianBlur instead of clip-path gives soft, paint-like
    transitions at wall boundaries rather than hard polygon lines. */
-function wallMaskToMask(mask: string, blur = 1.8): string {
+function wallMaskToMask(mask: string, blur = 1.1): string {
   const pts = mask.trim().split(/\s+/).map(p => {
     const [x, y] = p.split(",").map(Number);
     return `${(x * 100).toFixed(2)},${(y * 100).toFixed(2)}`;

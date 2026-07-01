@@ -855,62 +855,149 @@ export default function App(){
   );
 }
 
-/* ── Convert 0–1 wall mask coordinates to a CSS clip-path polygon ──
-   clip-path is the most reliable cross-browser approach for HTML elements. */
-function wallMaskToCSS(mask: string): string {
-  const pts = mask.trim().split(/\s+/).map(p => {
-    const [x, y] = p.split(",").map(Number);
-    return `${(x * 100).toFixed(2)}% ${(y * 100).toFixed(2)}%`;
-  });
-  return `polygon(${pts.join(", ")})`;
+/* ── Wall-paint canvas engine ─────────────────────────────────────────────
+   Loads the room photo into an offscreen canvas, precomputes a pixel-level
+   wall mask, then rewrites only those pixels to the chosen paint colour.
+   The wall's original lightness (shadows, highlights) is preserved.
+   ──────────────────────────────────────────────────────────────────────── */
+
+function _hexToRgb(hex: string): [number,number,number] {
+  const h = hex.replace("#","");
+  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+}
+function _rgbToHsl(r: number, g: number, b: number): [number,number,number] {
+  r/=255; g/=255; b/=255;
+  const max=Math.max(r,g,b), min=Math.min(r,g,b), l=(max+min)/2;
+  if (max===min) return [0,0,l];
+  const d=max-min, s=l>0.5 ? d/(2-max-min) : d/(max+min);
+  let h=0;
+  if (max===r) h=(g-b)/d+(g<b?6:0);
+  else if (max===g) h=(b-r)/d+2;
+  else h=(r-g)/d+4;
+  return [h/6, s, l];
+}
+function _hslToRgb(h: number, s: number, l: number): [number,number,number] {
+  if (s===0) { const v=Math.round(l*255); return [v,v,v]; }
+  const q=l<0.5?l*(1+s):l+s-l*s, p=2*l-q;
+  const hf=(t:number)=>{ if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p; };
+  return [Math.round(hf(h+1/3)*255), Math.round(hf(h)*255), Math.round(hf(h-1/3)*255)];
+}
+function _inPoly(px:number, py:number, poly:[number,number][]): boolean {
+  let inside=false;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const[xi,yi]=poly[i],[xj,yj]=poly[j];
+    if(((yi>py)!==(yj>py))&&px<(xj-xi)*(py-yi)/(yj-yi)+xi) inside=!inside;
+  }
+  return inside;
+}
+function _parsePoly(mask:string):[number,number][] {
+  return mask.trim().split(/\s+/).map(p=>{ const[x,y]=p.split(",").map(Number); return[x,y]; });
 }
 
-/* ── Visualizer Canvas ── */
+/* Builds an offscreen canvas with the photo drawn at targetW×targetH (cover crop),
+   returns { pixels: original rgba array, wallMask: Uint8Array, w, h } */
+async function _loadRoomData(photoUrl:string, wallMask:string, tw:number, th:number) {
+  return new Promise<{pixels:Uint8ClampedArray, mask:Uint8Array, w:number, h:number}|null>(resolve=>{
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const oc = document.createElement("canvas");
+      oc.width=tw; oc.height=th;
+      const ctx = oc.getContext("2d")!;
+      // cover: scale to fill, centre
+      const sc = Math.max(tw/img.naturalWidth, th/img.naturalHeight);
+      const sw = img.naturalWidth*sc, sh = img.naturalHeight*sc;
+      ctx.drawImage(img, (tw-sw)/2, (th-sh)/2, sw, sh);
+      let pixels: Uint8ClampedArray;
+      try { pixels = ctx.getImageData(0,0,tw,th).data; }
+      catch { resolve(null); return; } // CORS blocked
+      // Rasterise polygon mask
+      const poly = _parsePoly(wallMask||"0,0.13 1,0.13 1,0.60 0,0.60");
+      const mask = new Uint8Array(tw*th);
+      for(let y=0;y<th;y++){
+        const ny=y/th;
+        for(let x=0;x<tw;x++){
+          if(_inPoly(x/tw, ny, poly)) mask[y*tw+x]=1;
+        }
+      }
+      resolve({ pixels: new Uint8ClampedArray(pixels), mask, w:tw, h:th });
+    };
+    img.onerror = ()=>resolve(null);
+    img.src = photoUrl;
+  });
+}
+
+/* Apply paint colour to a copy of the original pixels */
+function _applyPaint(
+  orig: Uint8ClampedArray, mask: Uint8Array,
+  paintHex: string, satScale: number, sheenAmt: number, w:number, h:number
+): ImageData {
+  const data = new Uint8ClampedArray(orig);
+  const [pr,pg,pb] = _hexToRgb(paintHex);
+  const [ph,ps] = _rgbToHsl(pr,pg,pb);
+  for(let i=0;i<mask.length;i++){
+    if(!mask[i]) continue;
+    const p=i*4;
+    const [,,l] = _rgbToHsl(data[p], data[p+1], data[p+2]);
+    // preserve lightness (shadows/highlights), replace hue+sat
+    const [nr,ng,nb] = _hslToRgb(ph, Math.min(1, ps*satScale), l);
+    // blend toward white for sheen (satin/gloss)
+    data[p]   = Math.round(nr + (255-nr)*sheenAmt*l);
+    data[p+1] = Math.round(ng + (255-ng)*sheenAmt*l);
+    data[p+2] = Math.round(nb + (255-nb)*sheenAmt*l);
+  }
+  return new ImageData(data, w, h);
+}
+
+/* ── Visualizer Canvas (painted preview) ── */
 function VisualizerCanvas({ room, colour, finish }:{
   room: Room, colour: Colour, finish: Finish
 }){
-  const opacity = finish==="Matte" ? 0.82 : finish==="Eggshell" ? 0.78 : finish==="Satin" ? 0.74 : 0.70;
-  const sheen   = finish==="Matte" ? 0    : finish==="Eggshell" ? 0.07 : finish==="Satin" ? 0.14 : 0.27;
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const roomData  = useRef<{pixels:Uint8ClampedArray, mask:Uint8Array, w:number, h:number}|null>(null);
+  const [corsErr, setCorsErr] = useState(false);
+  const W=1200, H=750;
 
-  const wallClip = room.wallMask
-    ? wallMaskToCSS(room.wallMask)
-    : "polygon(0% 13%, 100% 13%, 100% 62%, 0% 62%)";
+  const satScale = finish==="Matte"?0.90:finish==="Eggshell"?0.83:finish==="Satin"?0.76:0.68;
+  const sheenAmt = finish==="Matte"?0:finish==="Eggshell"?0.06:finish==="Satin"?0.13:0.24;
+
+  useEffect(()=>{
+    setCorsErr(false); roomData.current=null;
+    _loadRoomData(room.photo, room.wallMask||"", W, H).then(d=>{
+      if(!d){ setCorsErr(true); return; }
+      roomData.current=d;
+      paint();
+    });
+  }, [room.photo, room.wallMask]);
+
+  const paint = useCallback(()=>{
+    const rd=roomData.current; const cv=canvasRef.current;
+    if(!rd||!cv) return;
+    cv.width=rd.w; cv.height=rd.h;
+    const id = _applyPaint(rd.pixels, rd.mask, colour.hex, satScale, sheenAmt, rd.w, rd.h);
+    cv.getContext("2d")!.putImageData(id,0,0);
+  }, [colour.hex, satScale, sheenAmt]);
+
+  useEffect(()=>{ if(!corsErr) paint(); }, [colour.hex, finish, paint, corsErr]);
+
+  if(corsErr) return (
+    <div className="relative w-full">
+      <img src={room.photo} alt={room.name} className="w-full h-[380px] sm:h-[500px] object-cover block"/>
+      <div className="absolute bottom-4 left-4 right-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="px-[13px] py-[9px] rounded-[14px] text-[13px] font-[600]" style={{background:"rgba(248,244,239,.96)",color:"#2B2B2E"}}>{colour.name} • {finish}</div>
+        <div className="text-[10.5px] font-mono2 px-[10px] py-[6px] rounded-full" style={{background:"rgba(20,20,22,.72)",color:"#F8F4EF"}}>{room.name}</div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="relative w-full">
-      <img src={room.photo} alt={room.name}
-        className="w-full h-[380px] sm:h-[500px] object-cover block"
-      />
-      {/* Paint — clip-path restricts to wall polygon; color blend changes wall hue like real paint */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          backgroundColor: colour.hex,
-          mixBlendMode: "color",
-          opacity,
-          clipPath: wallClip,
-          transition: "background-color .11s linear, clip-path .18s ease",
-        }}
-      />
-      {/* Sheen highlight for satin / gloss */}
-      {sheen > 0 && (
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background: `linear-gradient(116deg, rgba(255,255,255,${sheen}) 0%, transparent 34%, transparent 64%, rgba(255,255,255,${sheen*0.55}) 100%)`,
-            mixBlendMode: "screen",
-            clipPath: wallClip,
-          }}
-        />
-      )}
-      {/* labels */}
-      <div className="absolute top-4 left-4 px-[12px] py-[7px] rounded-full text-[11px] font-mono2 bg-[#1f1f22e9] text-[#F8F4EF]">BEFORE</div>
-      <div className="absolute top-4 right-4 px-[12px] py-[7px] rounded-full text-[11px] font-mono2 bg-[#F8F4EFf2] text-[#2B2B2E]">AFTER · {colour.hex}</div>
+      <canvas ref={canvasRef} className="w-full h-[380px] sm:h-[500px] block" style={{objectFit:"cover"}}/>
       <div className="absolute bottom-4 left-4 right-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="px-[13px] py-[9px] rounded-[14px] text-[13px] font-[600]" style={{ background:"rgba(248,244,239,.96)", color:"#2B2B2E" }}>
+        <div className="px-[13px] py-[9px] rounded-[14px] text-[13px] font-[600]" style={{background:"rgba(248,244,239,.96)",color:"#2B2B2E"}}>
           {colour.name} • {finish}
         </div>
-        <div className="text-[10.5px] font-mono2 px-[10px] py-[6px] rounded-full" style={{ background:"rgba(20,20,22,.72)", color:"#F8F4EF" }}>
+        <div className="text-[10.5px] font-mono2 px-[10px] py-[6px] rounded-full" style={{background:"rgba(20,20,22,.72)",color:"#F8F4EF"}}>
           {room.name}
         </div>
       </div>
@@ -918,64 +1005,72 @@ function VisualizerCanvas({ room, colour, finish }:{
   );
 }
 
-/* ── Before / After Slider ── */
+/* ── Before / After Slider (canvas-powered) ── */
 function BeforeAfterSlider({ room, colour, finish }:{
   room: Room, colour: Colour, finish: Finish
 }){
-  const [pos, setPos] = useState(54); // %
-  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState(54);
+  const sliderRef  = useRef<HTMLDivElement>(null);
+  const afterRef   = useRef<HTMLCanvasElement>(null);
+  const roomData   = useRef<{pixels:Uint8ClampedArray, mask:Uint8Array, w:number, h:number}|null>(null);
+  const [corsErr, setCorsErr] = useState(false);
+  const W=900, H=560;
 
-  const move = (clientX:number)=>{
-    const el = ref.current; if(!el) return;
-    const r = el.getBoundingClientRect();
-    const x = Math.max(0, Math.min(r.width, clientX - r.left));
-    setPos((x / r.width) * 100);
+  const satScale = finish==="Matte"?0.90:finish==="Eggshell"?0.83:finish==="Satin"?0.76:0.68;
+  const sheenAmt = finish==="Matte"?0:finish==="Eggshell"?0.06:finish==="Satin"?0.13:0.24;
+
+  useEffect(()=>{
+    setCorsErr(false); roomData.current=null;
+    _loadRoomData(room.photo, room.wallMask||"", W, H).then(d=>{
+      if(!d){ setCorsErr(true); return; }
+      roomData.current=d;
+      paintAfter();
+    });
+  }, [room.photo, room.wallMask]);
+
+  const paintAfter = useCallback(()=>{
+    const rd=roomData.current; const cv=afterRef.current;
+    if(!rd||!cv) return;
+    cv.width=rd.w; cv.height=rd.h;
+    const id = _applyPaint(rd.pixels, rd.mask, colour.hex, satScale, sheenAmt, rd.w, rd.h);
+    cv.getContext("2d")!.putImageData(id,0,0);
+  }, [colour.hex, satScale, sheenAmt]);
+
+  useEffect(()=>{ if(!corsErr) paintAfter(); }, [colour.hex, finish, paintAfter, corsErr]);
+
+  const move=(clientX:number)=>{
+    const el=sliderRef.current; if(!el) return;
+    const r=el.getBoundingClientRect();
+    setPos(Math.max(0,Math.min(100,(clientX-r.left)/r.width*100)));
   };
-
-  const opacity = finish==="Matte" ? 0.82 : finish==="Eggshell" ? 0.78 : finish==="Satin" ? 0.74 : 0.70;
-  const sheen   = finish==="Matte" ? 0    : finish==="Eggshell" ? 0.07 : finish==="Satin" ? 0.14 : 0.27;
-  const wallClip = room.wallMask
-    ? wallMaskToCSS(room.wallMask)
-    : "polygon(0% 13%, 100% 13%, 100% 62%, 0% 62%)";
 
   return (
     <div
-      ref={ref}
+      ref={sliderRef}
       className="relative w-full h-[280px] sm:h-[340px] overflow-hidden rounded-[18px] select-none cursor-ew-resize"
-      style={{ background:"#111215", touchAction:"none" }}
+      style={{background:"#111215", touchAction:"none"}}
       onMouseDown={e=>move(e.clientX)}
-      onMouseMove={e=> e.buttons===1 && move(e.clientX)}
-      onTouchStart={e=> move(e.touches[0].clientX)}
-      onTouchMove={e=> move(e.touches[0].clientX)}
+      onMouseMove={e=>e.buttons===1&&move(e.clientX)}
+      onTouchStart={e=>move(e.touches[0].clientX)}
+      onTouchMove={e=>move(e.touches[0].clientX)}
       aria-label="Before after slider"
     >
-      {/* before — original photo, full width */}
-      <img src={room.photo} alt="before" className="absolute inset-0 w-full h-full object-cover" draggable={false} />
-      {/* after — photo + paint overlay, clipped to right side of slider handle */}
-      <div className="absolute inset-0" style={{ clipPath:`inset(0 0 0 ${pos}%)` }}>
-        <img src={room.photo} alt="after base" className="absolute inset-0 w-full h-full object-cover" draggable={false}/>
-        {/* paint — color blend mode changes wall hue like real paint */}
-        <div className="absolute inset-0 pointer-events-none" style={{
-          backgroundColor: colour.hex,
-          mixBlendMode:"color",
-          opacity,
-          clipPath: wallClip,
-        }}/>
-        {/* sheen for satin/gloss */}
-        {sheen > 0 && (
-          <div className="absolute inset-0 pointer-events-none" style={{
-            background:`linear-gradient(116deg, rgba(255,255,255,${sheen}) 0%, transparent 34%, transparent 64%, rgba(255,255,255,${sheen*0.55}) 100%)`,
-            mixBlendMode:"screen",
-            clipPath: wallClip,
-          }}/>
-        )}
-      </div>
-      {/* divider */}
-      <div className="absolute top-0 bottom-0" style={{ left:`${pos}%`, width:"2px", background:"#F8F4EF", boxShadow:"0 0 18px rgba(0,0,0,.55)"}}/>
-      <div className="absolute" style={{ left:`calc(${pos}% - 18px)`, top:"50%", transform:"translateY(-50%)" }}>
+      {/* BEFORE — original photo */}
+      <img src={room.photo} alt="before" className="absolute inset-0 w-full h-full object-cover" draggable={false}/>
+      {/* AFTER — painted canvas, revealed right of handle */}
+      {!corsErr && (
+        <canvas
+          ref={afterRef}
+          className="absolute inset-0 w-full h-full"
+          style={{objectFit:"cover", clipPath:`inset(0 ${(100-pos).toFixed(1)}% 0 0)`}}
+        />
+      )}
+      {/* divider + handle */}
+      <div className="absolute top-0 bottom-0 pointer-events-none" style={{left:`${pos}%`,width:"2px",background:"#F8F4EF",boxShadow:"0 0 18px rgba(0,0,0,.55)"}}/>
+      <div className="absolute pointer-events-none" style={{left:`calc(${pos}% - 18px)`,top:"50%",transform:"translateY(-50%)"}}>
         <div className="w-9 h-9 rounded-full bg-[#F8F4EF] shadow-lg flex items-center justify-center text-[13px]" aria-hidden>↔</div>
       </div>
-      <div className="absolute left-3 bottom-3 text-[10.5px] font-mono2 px-[9px] py-[5px] rounded-full bg-black/55 text-white">drag</div>
+      <div className="absolute left-3 bottom-3 text-[10.5px] font-mono2 px-[9px] py-[5px] rounded-full bg-black/55 text-white select-none">drag</div>
     </div>
   );
 }

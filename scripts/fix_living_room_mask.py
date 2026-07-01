@@ -12,9 +12,9 @@ OUT_MASK  = f"api/masks/{ROOM_ID}_mask.png"
 # Known safe wall polygons for Nairobi Living Room (from DB wall_mask)
 # These are the 3 actual wall regions: left strip, right strip, back wall upper
 POLYGONS = [
-    [(0,    0.15), (0.26, 0.15), (0.26, 0.60), (0,    0.60)],  # left wall
-    [(0.74, 0.15), (1,    0.15), (1,    0.60), (0.74, 0.60)],  # right wall
-    [(0.26, 0.15), (0.74, 0.15), (0.74, 0.52), (0.26, 0.52)],  # back wall centre
+    [(0,    0.22), (0.26, 0.22), (0.26, 0.58), (0,    0.58)],  # left wall (raised top to clear LED strip)
+    [(0.74, 0.22), (1,    0.22), (1,    0.58), (0.74, 0.58)],  # right wall
+    [(0.26, 0.22), (0.74, 0.22), (0.74, 0.50), (0.26, 0.50)],  # back wall centre
 ]
 
 raw = Image.open(RAW_MASK).convert("L")

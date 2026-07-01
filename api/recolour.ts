@@ -261,11 +261,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let polyStr: string | undefined = undefined;
 
     if (staticRoomId) {
-      // 1. Try reading the static pre-generated PNG mask file from bundle
-      const maskPath = path.join(process.cwd(), "api", "masks", `${staticRoomId}_mask.png`);
-      if (fs.existsSync(maskPath)) {
-        maskBuffer = fs.readFileSync(maskPath);
-      } else {
+      // Try reading the static pre-generated PNG mask file from bundle using multiple potential paths
+      const pathsToTry = [
+        path.join(process.cwd(), "api", "masks", `${staticRoomId}_mask.png`),
+        typeof __dirname !== "undefined" ? path.join(__dirname, "masks", `${staticRoomId}_mask.png`) : null,
+        typeof __dirname !== "undefined" ? path.join(__dirname, "api", "masks", `${staticRoomId}_mask.png`) : null,
+      ].filter((p): p is string => p !== null);
+
+      for (const p of pathsToTry) {
+        if (fs.existsSync(p)) {
+          maskBuffer = fs.readFileSync(p);
+          break;
+        }
+      }
+
+      if (!maskBuffer) {
         // 2. If mask file not present, query the database for the polygon string
         const [room] = await sql`SELECT wall_mask FROM rooms WHERE id = ${staticRoomId}`;
         if (room?.wall_mask) {

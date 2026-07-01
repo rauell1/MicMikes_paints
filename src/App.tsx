@@ -968,19 +968,27 @@ function VisualizerCanvas({ room, colour, finish }:{
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const roomData  = useRef<{pixels:Uint8ClampedArray, mask:Uint8Array, w:number, h:number}|null>(null);
   const [corsErr, setCorsErr] = useState(false);
+  const [imgErr, setImgErr] = useState(false);
   const W=1200, H=750;
+
+  const pregenUrl = `/pregenerated/${room.id}_${colour.id}.jpg`;
+
+  useEffect(() => {
+    setImgErr(false);
+  }, [room.id, colour.id]);
 
   const satScale = finish==="Matte"?0.90:finish==="Eggshell"?0.83:finish==="Satin"?0.76:0.68;
   const sheenAmt = finish==="Matte"?0:finish==="Eggshell"?0.06:finish==="Satin"?0.13:0.24;
 
   useEffect(()=>{
+    if (!imgErr) return;
     setCorsErr(false); roomData.current=null;
     _loadRoomData(room.photo, room.wallMask||"", W, H).then(d=>{
       if(!d){ setCorsErr(true); return; }
       roomData.current=d;
       paint();
     });
-  }, [room.photo, room.wallMask]);
+  }, [room.photo, room.wallMask, imgErr]);
 
   const paint = useCallback(()=>{
     const rd=roomData.current; const cv=canvasRef.current;
@@ -990,11 +998,32 @@ function VisualizerCanvas({ room, colour, finish }:{
     cv.getContext("2d")!.putImageData(id,0,0);
   }, [colour.hex, satScale, sheenAmt]);
 
-  useEffect(()=>{ if(!corsErr) paint(); }, [colour.hex, finish, paint, corsErr]);
+  useEffect(()=>{ if(!corsErr && imgErr) paint(); }, [colour.hex, finish, paint, corsErr, imgErr]);
+
+  if (!imgErr) {
+    return (
+      <div className="relative w-full">
+        <img 
+          src={pregenUrl} 
+          onError={() => setImgErr(true)} 
+          alt={`${colour.name} • ${finish}`} 
+          className="w-full h-[380px] sm:h-[500px] object-cover block rounded-[18px]"
+        />
+        <div className="absolute bottom-4 left-4 right-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="px-[13px] py-[9px] rounded-[14px] text-[13px] font-[600]" style={{background:"rgba(248,244,239,.96)",color:"#2B2B2E"}}>
+            {colour.name} • {finish}
+          </div>
+          <div className="text-[10.5px] font-mono2 px-[10px] py-[6px] rounded-full" style={{background:"rgba(20,20,22,.72)",color:"#F8F4EF"}}>
+            {room.name} (HD Preview)
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if(corsErr) return (
     <div className="relative w-full">
-      <img src={room.photo} alt={room.name} className="w-full h-[380px] sm:h-[500px] object-cover block"/>
+      <img src={room.photo} alt={room.name} className="w-full h-[380px] sm:h-[500px] object-cover block rounded-[18px]"/>
       <div className="absolute bottom-4 left-4 right-4 flex flex-wrap items-center justify-between gap-3">
         <div className="px-[13px] py-[9px] rounded-[14px] text-[13px] font-[600]" style={{background:"rgba(248,244,239,.96)",color:"#2B2B2E"}}>{colour.name} • {finish}</div>
         <div className="text-[10.5px] font-mono2 px-[10px] py-[6px] rounded-full" style={{background:"rgba(20,20,22,.72)",color:"#F8F4EF"}}>{room.name}</div>
@@ -1004,7 +1033,7 @@ function VisualizerCanvas({ room, colour, finish }:{
 
   return (
     <div className="relative w-full">
-      <canvas ref={canvasRef} className="w-full h-[380px] sm:h-[500px] block" style={{objectFit:"cover"}}/>
+      <canvas ref={canvasRef} className="w-full h-[380px] sm:h-[500px] block rounded-[18px]" style={{objectFit:"cover"}}/>
       <div className="absolute bottom-4 left-4 right-4 flex flex-wrap items-center justify-between gap-3">
         <div className="px-[13px] py-[9px] rounded-[14px] text-[13px] font-[600]" style={{background:"rgba(248,244,239,.96)",color:"#2B2B2E"}}>
           {colour.name} • {finish}
@@ -1026,19 +1055,27 @@ function BeforeAfterSlider({ room, colour, finish }:{
   const afterRef   = useRef<HTMLCanvasElement>(null);
   const roomData   = useRef<{pixels:Uint8ClampedArray, mask:Uint8Array, w:number, h:number}|null>(null);
   const [corsErr, setCorsErr] = useState(false);
+  const [imgErr, setImgErr] = useState(false);
   const W=900, H=560;
+
+  const pregenUrl = `/pregenerated/${room.id}_${colour.id}.jpg`;
+
+  useEffect(() => {
+    setImgErr(false);
+  }, [room.id, colour.id]);
 
   const satScale = finish==="Matte"?0.90:finish==="Eggshell"?0.83:finish==="Satin"?0.76:0.68;
   const sheenAmt = finish==="Matte"?0:finish==="Eggshell"?0.06:finish==="Satin"?0.13:0.24;
 
   useEffect(()=>{
+    if (!imgErr) return;
     setCorsErr(false); roomData.current=null;
     _loadRoomData(room.photo, room.wallMask||"", W, H).then(d=>{
       if(!d){ setCorsErr(true); return; }
       roomData.current=d;
       paintAfter();
     });
-  }, [room.photo, room.wallMask]);
+  }, [room.photo, room.wallMask, imgErr]);
 
   const paintAfter = useCallback(()=>{
     const rd=roomData.current; const cv=afterRef.current;
@@ -1048,7 +1085,7 @@ function BeforeAfterSlider({ room, colour, finish }:{
     cv.getContext("2d")!.putImageData(id,0,0);
   }, [colour.hex, satScale, sheenAmt]);
 
-  useEffect(()=>{ if(!corsErr) paintAfter(); }, [colour.hex, finish, paintAfter, corsErr]);
+  useEffect(()=>{ if(!corsErr && imgErr) paintAfter(); }, [colour.hex, finish, paintAfter, corsErr, imgErr]);
 
   const move=(clientX:number)=>{
     const el=sliderRef.current; if(!el) return;
@@ -1069,13 +1106,24 @@ function BeforeAfterSlider({ room, colour, finish }:{
     >
       {/* BEFORE — original photo */}
       <img src={room.photo} alt="before" className="absolute inset-0 w-full h-full object-cover" draggable={false}/>
-      {/* AFTER — painted canvas, revealed right of handle */}
-      {!corsErr && (
-        <canvas
-          ref={afterRef}
-          className="absolute inset-0 w-full h-full"
-          style={{objectFit:"cover", clipPath:`inset(0 ${(100-pos).toFixed(1)}% 0 0)`}}
+      {/* AFTER — pregenerated image or fallback canvas, revealed right of handle */}
+      {!imgErr ? (
+        <img
+          src={pregenUrl}
+          onError={() => setImgErr(true)}
+          alt="after"
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{clipPath:`inset(0 ${(100-pos).toFixed(1)}% 0 0)`}}
+          draggable={false}
         />
+      ) : (
+        !corsErr && (
+          <canvas
+            ref={afterRef}
+            className="absolute inset-0 w-full h-full"
+            style={{objectFit:"cover", clipPath:`inset(0 ${(100-pos).toFixed(1)}% 0 0)`}}
+          />
+        )
       )}
       {/* divider + handle */}
       <div className="absolute top-0 bottom-0 pointer-events-none" style={{left:`${pos}%`,width:"2px",background:"#F8F4EF",boxShadow:"0 0 18px rgba(0,0,0,.55)"}}/>

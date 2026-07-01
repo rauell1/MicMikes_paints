@@ -137,7 +137,22 @@ export function recolourImage(
   else if (finish === "Satin") sheenAmt = 0.12;
   else if (finish === "Semi-Gloss") sheenAmt = 0.25;
 
-  const l_base = 0.82; // off-white base lightness calibration
+  // Pass 1: mean lightness of masked (wall) pixels, so texture can be
+  // expressed as deviation-from-mean rather than absolute lightness.
+  let lSum = 0;
+  let lCount = 0;
+  for (let i = 0; i < mask.length; i++) {
+    if (mask[i] === 0) continue;
+    const idx = i * 4;
+    const [, , ol] = rgbToHsl(data[idx], data[idx + 1], data[idx + 2]);
+    lSum += ol;
+    lCount++;
+  }
+  const lMean = lCount > 0 ? lSum / lCount : 0.82;
+
+  // How much of the original lightness deviation survives repainting.
+  // 1.0 = full texture (brick pointing, plaster shadows fully visible).
+  const textureKeep = 0.85;
 
   // Apply recolouring loop
   for (let i = 0; i < mask.length; i++) {
@@ -151,8 +166,14 @@ export function recolourImage(
 
     const [, , ol] = rgbToHsl(r, g, b);
 
-    // Scaling the target lightness based on original lightness to preserve shadows & texture
-    const newL = Math.max(0, Math.min(1, pl * (ol / l_base)));
+    // Contrast-preserving lightness: re-centre this pixel's deviation from
+    // the wall's mean lightness around the paint colour's lightness. A brick
+    // shadow 0.3 below the wall mean stays ~0.3 below the paint lightness,
+    // so mortar lines and texture read through the new colour. Deviation is
+    // compressed near the extremes to avoid clipping to black/white.
+    const deviation = (ol - lMean) * textureKeep;
+    const headroom = deviation > 0 ? 1 - pl : pl;
+    const newL = Math.max(0.02, Math.min(0.98, pl + deviation * Math.min(1, headroom * 2.2)));
 
     // Generate paint color at the adjusted lightness
     const [nr, ng, nb] = hslToRgb(ph, ps, newL);

@@ -20,10 +20,10 @@ async function trackCartEvent(payload: Record<string, unknown>) {
 }
 
 /* ──────────────────────────────────────────────────────────
-   MicMikes Paints — Keekorok Edition
+   MicMikes Paints - Keekorok Edition
    Single-page, mobile-first, production landing
    Next.js + Tailwind + shadcn/ui visual language
-   "Bring Walls to Life — Colour That Lasts. Style That Inspires."
+   "Bring Walls to Life - Colour That Lasts. Style That Inspires."
    ────────────────────────────────────────────────────────── */
 
 type ColourFamily = "Neutrals" | "Warm Earth" | "Cool Green" | "Blue" | "Red & Terracotta" | "Yellow & Gold";
@@ -177,7 +177,7 @@ export default function App(){
     setCart(cs=> cs.filter(c=> key !== `${c.productId}|${c.colourId}|${c.size}|${c.finish}`));
   };
 
-  /* navigate — tab on mobile, smooth scroll on desktop */
+  /* navigate - tab on mobile, smooth scroll on desktop */
   const navigate = useCallback((id: string) => {
     setActivePage(id);
     if (window.matchMedia("(min-width: 1024px)").matches) {
@@ -243,7 +243,7 @@ export default function App(){
       {/* 1. Announcement bar */}
       <div className="w-full text-[11.5px] sm:text-[12.5px] tracking-wide" style={{ backgroundColor:"#2B2B2E", color:"#F8F4EF" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-8 py-[10px] flex items-center justify-center gap-4 text-center">
-          <span className="font-tag text-[15px] sm:text-[16px] italic">Bring Walls to Life — Colour That Lasts. Style That Inspires.</span>
+          <span className="font-tag text-[15px] sm:text-[16px] italic">Bring Walls to Life - Colour That Lasts. Style That Inspires.</span>
           <span className="hidden sm:inline opacity-90">•</span>
           <span className="font-mono2 text-[11px] hidden sm:inline">Free delivery in Nairobi over KES 15,000</span>
         </div>
@@ -318,7 +318,7 @@ export default function App(){
                   Colour That Lasts. Style That Inspires.
                 </p>
                 <p className="max-w-[520px] text-[15.5px] leading-relaxed mm-muted mt-5">
-                  Keekorok paint system — 20 curated Kenyan shades, M-Pesa checkout, next-day Nairobi delivery. Premium emulsion, eggshell, satin & semi-gloss.
+                  Keekorok paint system - 20 curated Kenyan shades, M-Pesa checkout, next-day Nairobi delivery. Premium emulsion, eggshell, satin & semi-gloss.
                 </p>
                 <div className="flex flex-wrap gap-3 mt-7">
                   <button onClick={()=>navigate("colours")} className="btn btn-primary px-[22px] py-[13px] text-[14.5px]">
@@ -382,7 +382,7 @@ export default function App(){
           <div className="max-w-7xl mx-auto px-4 sm:px-8">
             <div className="max-w-[760px] mb-6">
               <h2 className="font-display text-[30px] sm:text-[36px]">Colour Explorer</h2>
-              <p className="mm-muted mt-2">20 Kenyan-inspired Keekorok tones. Tap any swatch — it loads instantly in the visualizer below.</p>
+              <p className="mm-muted mt-2">20 Kenyan-inspired Keekorok tones. Tap any swatch - it loads instantly in the visualizer below.</p>
             </div>
 
             {/* family tabs (shadcn Tabs look) */}
@@ -437,7 +437,7 @@ export default function App(){
             <div className="flex flex-wrap items-end justify-between gap-3 mb-6">
               <div>
                 <h2 className="font-display text-[30px] sm:text-[36px]">Room Visualizer</h2>
-                <p className="mt-2" style={{ color:"#d5cfc3" }}>Pick a room, pick Keekorok — before / after, matte / satin / gloss.</p>
+                <p className="mt-2" style={{ color:"#d5cfc3" }}>Pick a room, pick Keekorok - before / after, matte / satin / gloss.</p>
               </div>
               <div className="text-[11px] px-3 py-[6px] rounded-full" style={{ background:"#3b3b3d", color:"#e9dcc7" }}>
                 ← → keys switch colours
@@ -481,7 +481,7 @@ export default function App(){
                   </div>
 
                   <div className="flex items-baseline justify-between mb-[10px]">
-                    <div className="text-[12px] font-[600]" style={{ color:"#d5cfc3" }}>Colour — {vizColour?.name ?? "—"}</div>
+                    <div className="text-[12px] font-[600]" style={{ color:"#d5cfc3" }}>Colour - {vizColour?.name ?? "-"}</div>
                     <div className="text-[10.5px] font-mono2" style={{ color:"#8f897d" }}>{vizColour?.hex}</div>
                   </div>
                   <div className="mb-4 space-y-[10px]">
@@ -539,9 +539,9 @@ export default function App(){
                     ))}
                   </div>
                   <div className="text-[11px] mb-5" style={{ color:"#9d968a" }}>
-                    {vizFinish==="Matte" ? "Soft, velvety — hides wall imperfections" :
-                     vizFinish==="Satin" ? "Silky low sheen — easy to clean, most popular" :
-                     "Durable gloss — kitchens, doors & high-touch walls"}
+                    {vizFinish==="Matte" ? "Soft, velvety - hides wall imperfections" :
+                     vizFinish==="Satin" ? "Silky low sheen - easy to clean, most popular" :
+                     "Durable gloss - kitchens, doors & high-touch walls"}
                   </div>
 
                   <div className="text-[12px] font-[600] mb-[8px]" style={{ color:"#d5cfc3" }}>Size</div>
@@ -559,7 +559,7 @@ export default function App(){
                       >
                         <div>{s}</div>
                         <div className="text-[10px] font-[400]" style={{ color:"#bdb7a9" }}>
-                          {products[0] ? kes(products[0].baseKes[s]) : "—"}
+                          {products[0] ? kes(products[0].baseKes[s]) : "-"}
                         </div>
                       </button>
                     ))}
@@ -585,7 +585,7 @@ export default function App(){
                     className="btn w-full py-[13px] text-[14.5px] disabled:opacity-40"
                     style={{ background:"#E9A23B", color:"#2B1a05" }}
                   >
-                    Add {vizColour?.name ?? "colour"} · {vizSize} — {products[0] ? kes(products[0].baseKes[vizSize]) : ""}
+                    Add {vizColour?.name ?? "colour"} · {vizSize} - {products[0] ? kes(products[0].baseKes[vizSize]) : ""}
                   </button>
                 </div>
               </div>
@@ -602,13 +602,13 @@ export default function App(){
                 <p className="mm-muted mt-2">Paints, primer & supplies · M-Pesa checkout · priced in KES</p>
               </div>
               <div className="hidden sm:flex items-center gap-2 text-[12px]">
-                <span className="chip">Colour: {shopColour?.name ?? "—"}</span>
+                <span className="chip">Colour: {shopColour?.name ?? "-"}</span>
                 <span className="chip">{shopSize}</span>
                 <span className="chip">{shopFinish}</span>
               </div>
             </div>
 
-            {/* global pickers — size/finish hidden for supplies-only selection */}
+            {/* global pickers - size/finish hidden for supplies-only selection */}
             <div className="mm-card rounded-[18px] p-4 mb-6 grid md:grid-cols-3 gap-4">
               <div>
                 <div className="text-[12px] font-[600] mb-[6px]">Colour</div>
@@ -617,7 +617,7 @@ export default function App(){
                   value={shopColour?.id ?? ""}
                   onChange={e=> setShopColourId(e.target.value)}
                 >
-                  {colours.map(c=> <option key={c.id} value={c.id}>{c.name} — {c.hex}</option>)}
+                  {colours.map(c=> <option key={c.id} value={c.id}>{c.name} - {c.hex}</option>)}
                 </select>
               </div>
               <div>
@@ -670,7 +670,7 @@ export default function App(){
                               productName: p.name,
                               productSlug: p.slug,
                               colourId: shopColour?.id ?? "none",
-                              colourName: isSupply ? "—" : (shopColour?.name ?? ""),
+                              colourName: isSupply ? "-" : (shopColour?.name ?? ""),
                               colourHex: isSupply ? "#e8e3db" : (shopColour?.hex ?? "#ccc"),
                               size: shopSize,
                               finish: isSupply ? "Matte" : shopFinish,
@@ -695,14 +695,14 @@ export default function App(){
         </section>
       </main>
 
-      {/* 10. Footer — sticky to bottom via flex flex-col on root */}
+      {/* 10. Footer - sticky to bottom via flex flex-col on root */}
       <footer className={`mt-auto ${activePage==="shop" ? "" : "hidden lg:block"}`} style={{ backgroundColor:"#2B2B2E", color:"#F8F4EF" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-8 py-12 grid md:grid-cols-4 gap-10 text-[13.5px]">
           <div>
             <div className="font-display text-[22px]">MicMikes Paints</div>
             <div className="font-tag text-[17px]" style={{ color:"#d5c9b5" }}>Keekorok Edition</div>
             <div className="mt-3 leading-relaxed" style={{ color:"#c4bcaf" }}>
-              Bring Walls to Life — Colour That Lasts. Style That Inspires.
+              Bring Walls to Life - Colour That Lasts. Style That Inspires.
             </div>
           </div>
           <div className="space-y-[10px]" style={{ color:"#d6cdc0" }}>
@@ -715,7 +715,7 @@ export default function App(){
             <div className="font-[600] text-[#F8F4EF] mb-1">Keekorok</div>
             <div>Nairobi, Kenya</div>
             <div className="text-[12.5px]">Westlands · Karen · CBD</div>
-            <div className="text-[12.5px]">Mon–Sat 8am–6pm</div>
+            <div className="text-[12.5px]">Mon-Sat 8am-6pm</div>
           </div>
           <div className="space-y-[10px]" style={{ color:"#d6cdc0" }}>
             <div className="font-[600] text-[#F8F4EF] mb-1">Connect</div>
@@ -733,7 +733,7 @@ export default function App(){
         </div>
       </footer>
 
-      {/* 8. Cart Drawer — shadcn Sheet style */}
+      {/* 8. Cart Drawer - shadcn Sheet style */}
       {cartOpen && (
         <div className="fixed inset-0 z-[70]">
           <div className="absolute inset-0 bg-black/45 fade" onClick={()=>setCartOpen(false)} />
@@ -754,7 +754,7 @@ export default function App(){
               </div>
             </div>
 
-            {/* Sheet content — scroll area */}
+            {/* Sheet content - scroll area */}
             <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-5 space-y-[14px]">
               {cart.length===0 ? (
                 <div className="text-center py-14">
@@ -817,7 +817,7 @@ export default function App(){
         </div>
       )}
 
-      {/* 9. Checkout modal — shadcn Dialog style */}
+      {/* 9. Checkout modal - shadcn Dialog style */}
       {checkoutOpen && (
         <CheckoutDialog
           subtotal={subtotal}
@@ -905,7 +905,7 @@ export default function App(){
         </div>
       )}
 
-      {/* WhatsApp float button — hidden while cart/checkout overlays are open */}
+      {/* WhatsApp float button - hidden while cart/checkout overlays are open */}
       {!cartOpen && !checkoutOpen && (
       <a
         href="https://wa.me/254712345678?text=Hi%20MicMikes%20Paints%20%E2%80%94%20I%27d%20like%20to%20order%20Keekorok%20paints"
@@ -982,7 +982,7 @@ async function _loadRoomData(photoUrl:string, wallMask:string, tw:number, th:num
       let pixels: Uint8ClampedArray;
       try { pixels = ctx.getImageData(0,0,tw,th).data; }
       catch { resolve(null); return; } // CORS blocked
-      // Rasterise wall mask — supports semicolon-delimited multiple polygon regions
+      // Rasterise wall mask - supports semicolon-delimited multiple polygon regions
       const polys = (wallMask||"0,0.13 1,0.13 1,0.60 0,0.60")
         .split(";").map(s => _parsePoly(s.trim())).filter(p => p.length >= 3);
       const mask = new Uint8Array(tw*th);
@@ -1000,7 +1000,7 @@ async function _loadRoomData(photoUrl:string, wallMask:string, tw:number, th:num
 }
 
 /* Apply paint colour to a copy of the original pixels.
-   Two-layer filter: (1) spatial polygon mask, (2) per-pixel neutrality check —
+   Two-layer filter: (1) spatial polygon mask, (2) per-pixel neutrality check -
    walls are desaturated and light; furniture/floors have distinct hue or are dark.
    Only pixels that are both inside the polygon AND neutral enough get recoloured. */
 function _applyPaint(
@@ -1067,7 +1067,7 @@ function VisualizerCanvas({ room, colour, finish }:{
     cv.getContext("2d")!.putImageData(id,0,0);
   }, [colour.hex, satScale, sheenAmt]);
 
-  /* Preload the pregen image off-DOM, swap only when ready — no flash.
+  /* Preload the pregen image off-DOM, swap only when ready - no flash.
      On failure, fall back to canvas recolor, then to the original photo. */
   useEffect(()=>{
     let alive = true;
@@ -1105,7 +1105,7 @@ function VisualizerCanvas({ room, colour, finish }:{
       const fileName = `micmikes-${room.name.replace(/\s+/g,"-").toLowerCase()}-${colour.name.replace(/\s+/g,"-").toLowerCase()}.jpg`;
       const file = new File([blob], fileName, { type:"image/jpeg" });
       if (navigator.canShare?.({ files:[file] })) {
-        await navigator.share({ files:[file], title:`${colour.name} — MicMikes Paints`, text:`${room.name} painted in ${colour.name} (${colour.hex})` });
+        await navigator.share({ files:[file], title:`${colour.name} - MicMikes Paints`, text:`${room.name} painted in ${colour.name} (${colour.hex})` });
       } else {
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
@@ -1113,7 +1113,7 @@ function VisualizerCanvas({ room, colour, finish }:{
         a.click();
         URL.revokeObjectURL(a.href);
       }
-    } catch { /* user cancelled share — fine */ }
+    } catch { /* user cancelled share - fine */ }
   };
 
   const painted = mode==="pregen"
@@ -1134,7 +1134,7 @@ function VisualizerCanvas({ room, colour, finish }:{
       onMouseMove={compare ? (e=>{ if(e.buttons===1) move(e.clientX); }) : undefined}
       onTouchStart={compare ? (e=>move(e.touches[0].clientX)) : undefined}
       onTouchMove={compare ? (e=>move(e.touches[0].clientX)) : undefined}
-      aria-label={compare ? "Before / after comparison — drag to reveal" : `${room.name} painted in ${colour.name}`}
+      aria-label={compare ? "Before / after comparison - drag to reveal" : `${room.name} painted in ${colour.name}`}
     >
       {/* original photo sits underneath; painted layer covers or is clipped */}
       <img src={room.photo} alt="" aria-hidden draggable={false} className="absolute inset-0 w-full h-full object-cover" />
@@ -1238,7 +1238,7 @@ function CheckoutDialog({
       setReference(data.reference);
       setStep("success");
     } catch(e:any) {
-      setErr(e.message || "Could not place order — please try again");
+      setErr(e.message || "Could not place order - please try again");
       setStep("form");
     }
   };
@@ -1298,7 +1298,7 @@ function CheckoutDialog({
               </div>
 
               <button onClick={placeOrder} className="btn w-full py-[13px] text-[15px] text-white" style={{ background:"#0aa85a" }}>
-                Place order — {kes(total)}
+                Place order - {kes(total)}
               </button>
               <div className="text-[11.5px] mm-muted text-center leading-relaxed">
                 We'll send an M-Pesa payment request to your phone to complete the order.<br/>

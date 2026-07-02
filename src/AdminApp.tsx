@@ -129,7 +129,7 @@ function LoginPage({ onSuccess }: { onSuccess: () => void }) {
       });
       if (!r.ok) throw new Error();
       onSuccess();
-    } catch { setErr("Wrong password — try again"); }
+    } catch { setErr("Wrong password - try again"); }
     finally   { setLoading(false); }
   };
 
@@ -333,7 +333,7 @@ function ColoursTab({ showToast }: { showToast: (m: string) => void }) {
 
       {/* edit/add modal */}
       {(editing||adding) && (
-        <Modal title={adding ? "Add colour" : `Edit — ${editing!.name}`} onClose={closeModal}>
+        <Modal title={adding ? "Add colour" : `Edit - ${editing!.name}`} onClose={closeModal}>
           <div className="space-y-4">
             <div className="flex items-center gap-4 p-4 rounded-[14px]" style={{ background:"#f5f0e8" }}>
               <div className="relative">
@@ -533,7 +533,7 @@ function ProductsTab({ showToast }: { showToast: (m:string)=>void }) {
       ) : null)}
 
       {(editing||adding) && (
-        <Modal title={adding ? "Add product" : `Edit — ${editing!.name}`} onClose={closeModal} wide>
+        <Modal title={adding ? "Add product" : `Edit - ${editing!.name}`} onClose={closeModal} wide>
           <div className="space-y-4">
             <div className="grid sm:grid-cols-2 gap-3">
               <Field label="Product name">
@@ -563,7 +563,7 @@ function ProductsTab({ showToast }: { showToast: (m:string)=>void }) {
               <img src={draft.image_url} alt="" className="w-full h-40 object-cover rounded-[12px]" onError={e=>(e.currentTarget.style.display="none")} />
             )}
 
-            {/* pricing — only shown when editing */}
+            {/* pricing - only shown when editing */}
             {editing && editing.variants.length > 0 && (
               <div>
                 <div className="text-[12px] font-[700] uppercase tracking-wide mb-3" style={{ color:"#6f6a62" }}>Pricing (KES)</div>
@@ -697,7 +697,7 @@ function RoomsTab({ showToast }: { showToast: (m:string)=>void }) {
       </div>
 
       {(editing||adding) && (
-        <Modal title={adding ? "Add room" : `Edit — ${editing!.name}`} onClose={closeModal} wide>
+        <Modal title={adding ? "Add room" : `Edit - ${editing!.name}`} onClose={closeModal} wide>
           <div className="space-y-4">
             <div className="grid sm:grid-cols-2 gap-3">
               <Field label="Room name">
@@ -724,7 +724,7 @@ function RoomsTab({ showToast }: { showToast: (m:string)=>void }) {
             )}
             <Field
               label="Wall mask polygon"
-              hint='Space-separated x,y pairs as 0–1 fractions of image size. Example: "0,0.08 1,0.08 1,0.65 0,0.65" draws the top 65% as the wall region. The red overlay above shows the current mask.'
+              hint='Space-separated x,y pairs as 0-1 fractions of image size. Example: "0,0.08 1,0.08 1,0.65 0,0.65" draws the top 65% as the wall region. The red overlay above shows the current mask.'
             >
               <textarea className={inp + " font-mono text-[12px] resize-none"} rows={3}
                 value={draft.wall_mask}
@@ -850,13 +850,13 @@ function OrdersTab({ showToast }: { showToast: (m:string)=>void }) {
       </div>
 
       {detail && (
-        <Modal title={`Order — ${detail.name}`} onClose={()=>setDetail(null)} wide>
+        <Modal title={`Order - ${detail.name}`} onClose={()=>setDetail(null)} wide>
           <div className="space-y-4 text-[13px]">
             <div className="grid sm:grid-cols-2 gap-3">
               {[
                 ["Name", detail.name], ["Email", detail.email], ["Phone", detail.phone],
                 ["Location", `${detail.town}, ${detail.county}`],
-                ["M-Pesa ref", detail.mpesa_ref||"—"],
+                ["M-Pesa ref", detail.mpesa_ref||"-"],
                 ["Date", new Date(detail.created_at).toLocaleString("en-KE")],
               ].map(([k,v])=>(
                 <div key={k} className="p-3 rounded-[10px]" style={{ background:"#f5f0e8" }}>

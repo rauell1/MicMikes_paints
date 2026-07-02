@@ -203,16 +203,24 @@ def segment_room(room, processor, model):
     mask_img.save(raw_path)
 
     # ── Edge-aware feathering ──────────────────────────────────────────
-    # Problem with plain blur: it expands the mask outward, tinting
-    # neighbours. Fix: close small holes, ERODE by the blur radius first,
-    # then blur — the soft ramp now lives inside the wall boundary.
-    close_r = max(3, orig_w // 320)          # ~5px at 1600w — gentler than before
-    blur_r  = max(4, orig_w // 260)          # ~6px at 1600w
+    # Blur softens the mask but must neither spill onto objects nor pull
+    # back from them (pulling back leaves a bright halo of unpainted wall
+    # around furniture). So: close small holes, blur gently, then hard-clip
+    # the result to the wall region — paint runs right up to the object
+    # boundary with a crisp line, exactly like real cutting-in.
+    close_r = max(3, orig_w // 320)          # ~5px at 1600w
+    blur_r  = max(3, orig_w // 400)          # ~4px at 1600w — AA only
 
     closed = mask_img.filter(ImageFilter.MaxFilter(close_r * 2 + 1))
     closed = closed.filter(ImageFilter.MinFilter(close_r * 2 + 1))
-    eroded = closed.filter(ImageFilter.MinFilter(blur_r * 2 + 1))
-    feathered = eroded.filter(ImageFilter.GaussianBlur(radius=blur_r))
+    blurred = closed.filter(ImageFilter.GaussianBlur(radius=blur_r))
+
+    # Clip: zero everywhere outside the (1px-dilated) wall region so the
+    # feather is one-sided — it fades inside the wall, never onto objects.
+    blurred_np = np.array(blurred)
+    keep = ndimage.binary_dilation(np.array(closed) > 127, iterations=1)
+    blurred_np[~keep] = 0
+    feathered = Image.fromarray(blurred_np, mode="L")
 
     backup = backup_existing(room_id)
     if backup:

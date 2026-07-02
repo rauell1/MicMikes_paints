@@ -17,7 +17,9 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": {
-        target: "http://localhost:3001",
+        // Dev proxies API calls to the live deployment (serverless fns
+        // don't run under plain `vite`). Override with VITE_API_TARGET.
+        target: process.env.VITE_API_TARGET || "https://mic-mikes-paints.vercel.app",
         changeOrigin: true,
       },
     },

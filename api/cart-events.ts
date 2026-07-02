@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { neon } from "@neondatabase/serverless";
 
-const VALID_EVENTS = ["add", "remove", "update", "checkout_start", "checkout_complete"];
+const VALID_EVENTS = ["add", "remove", "update", "checkout_start", "checkout_complete", "swatch_click", "visualizer_open"];
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });

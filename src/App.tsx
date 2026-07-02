@@ -109,8 +109,34 @@ export default function App(){
   const [vizRoomIdx, setVizRoomIdx] = useState(0);
   const [vizColourId, setVizColourId] = useState<string | null>(null);
   const [vizFinish, setVizFinish] = useState<Finish>("Satin");
+  const [vizSize, setVizSize] = useState<Size>("4L");
   const vizRoom = rooms[vizRoomIdx] ?? null;
   const vizColour = (vizColourId ? colours.find(c=>c.id===vizColourId) : null) ?? colours.find(c=>c.name==="Indian Ocean") ?? colours[0] ?? null;
+
+  /* popular colours (aggregated from cart_events swatch clicks + adds) */
+  const [popularIds, setPopularIds] = useState<string[]>([]);
+  useEffect(()=>{
+    fetch("/api/popular-colours").then(r=>r.ok ? r.json() : [])
+      .then(ids=> Array.isArray(ids) && setPopularIds(ids.slice(0,3)))
+      .catch(()=>{});
+  }, []);
+
+  /* keyboard navigation: ←/→ cycles colours while the visualizer is on screen */
+  useEffect(()=>{
+    const onKey = (e: KeyboardEvent)=>{
+      if(e.key!=="ArrowLeft" && e.key!=="ArrowRight") return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if(tag==="INPUT" || tag==="TEXTAREA" || tag==="SELECT") return;
+      if(!colours.length) return;
+      const cur = colours.findIndex(c=>c.id===(vizColour?.id ?? ""));
+      const next = e.key==="ArrowRight"
+        ? (cur+1) % colours.length
+        : (cur-1+colours.length) % colours.length;
+      setVizColourId(colours[next].id);
+    };
+    window.addEventListener("keydown", onKey);
+    return ()=>window.removeEventListener("keydown", onKey);
+  }, [colours, vizColour?.id]);
 
   /* colour explorer */
   const [familyFilter, setFamilyFilter] = useState<ColourFamily | "All">("All");
@@ -414,22 +440,19 @@ export default function App(){
                 <h2 className="font-display text-[30px] sm:text-[36px]">Room Visualizer</h2>
                 <p className="mt-2" style={{ color:"#d5cfc3" }}>Pick a room, pick Keekorok — before / after, matte / satin / gloss.</p>
               </div>
-              <div className="text-[11px] font-mono2 px-3 py-[6px] rounded-full" style={{ background:"#3b3b3d", color:"#e9dcc7" }}>
-                paint = uColor * (lum*2) + uSheen*pow(lum,8)
+              <div className="text-[11px] px-3 py-[6px] rounded-full" style={{ background:"#3b3b3d", color:"#e9dcc7" }}>
+                ← → keys switch colours
               </div>
             </div>
 
             <div className="grid lg:grid-cols-12 gap-6">
-              {/* canvas */}
+              {/* preview */}
               <div className="lg:col-span-8">
                 <div className="rounded-[26px] overflow-hidden mm-shadow" style={{ background:"#17171a" }}>
                   {vizRoom && vizColour
                     ? <VisualizerCanvas room={vizRoom} colour={vizColour} finish={vizFinish} />
                     : <div className="h-[380px] flex items-center justify-center text-[#888]">Loading rooms…</div>
                   }
-                </div>
-                <div className="mt-4">
-                  {vizRoom && vizColour && <BeforeAfterSlider room={vizRoom} colour={vizColour} finish={vizFinish} />}
                 </div>
               </div>
 
@@ -449,7 +472,7 @@ export default function App(){
                           color:"#F8F4EF"
                         }}
                       >
-                        <img src={r.photo} alt={r.name} className="w-16 h-11 object-cover rounded-lg" loading="lazy" />
+                        <PaintedThumb room={r} colourId={vizColour?.id ?? null} />
                         <div>
                           <div className="font-[600] text-[14px]">{r.name}</div>
                           <div className="text-[11px]" style={{ color:"#bdb7a9" }}>Kenyan interior</div>
@@ -458,26 +481,51 @@ export default function App(){
                     ))}
                   </div>
 
-                  <div className="text-[12px] font-[600] mb-[10px]" style={{ color:"#d5cfc3" }}>Colour — {vizColour?.name ?? "—"}</div>
-                  <div className="grid grid-cols-6 sm:grid-cols-8 lg:grid-cols-6 gap-[9px] mb-4">
-                    {colours.map(c=>(
-                      <button
-                        key={c.id}
-                        onClick={()=>setVizColourId(c.id)}
-                        className={`w-full aspect-square rounded-[12px] border-[2px] transition`}
-                        style={{
-                          backgroundColor:c.hex,
-                          borderColor: vizColour?.id===c.id ? "#E9A23B" : "transparent",
-                          transform: vizColour?.id===c.id ? "scale(1.04)" : "none"
-                        }}
-                        aria-label={c.name}
-                        title={c.name}
-                      />
-                    ))}
+                  <div className="flex items-baseline justify-between mb-[10px]">
+                    <div className="text-[12px] font-[600]" style={{ color:"#d5cfc3" }}>Colour — {vizColour?.name ?? "—"}</div>
+                    <div className="text-[10.5px] font-mono2" style={{ color:"#8f897d" }}>{vizColour?.hex}</div>
+                  </div>
+                  <div className="mb-4 space-y-[10px]">
+                    {FAMILIES.map(fam=>{
+                      const famColours = colours.filter(c=>c.family===fam);
+                      if(!famColours.length) return null;
+                      return (
+                        <div key={fam}>
+                          <div className="text-[10px] uppercase tracking-[0.08em] mb-[5px]" style={{ color:"#8f897d" }}>{fam}</div>
+                          <div className="grid grid-cols-8 lg:grid-cols-7 gap-[8px]">
+                            {famColours.map(c=>(
+                              <button
+                                key={c.id}
+                                onClick={()=>{
+                                  setVizColourId(c.id);
+                                  trackCartEvent({ eventType:"swatch_click", colourId:c.id });
+                                }}
+                                className="relative w-full aspect-square rounded-[10px] border-[2px] transition"
+                                style={{
+                                  backgroundColor:c.hex,
+                                  borderColor: vizColour?.id===c.id ? "#E9A23B" : "transparent",
+                                  transform: vizColour?.id===c.id ? "scale(1.06)" : "none"
+                                }}
+                                aria-label={c.name}
+                                title={c.name}
+                              >
+                                {popularIds.includes(c.id) && (
+                                  <span
+                                    className="absolute -top-[3px] -right-[3px] w-[11px] h-[11px] rounded-full text-[7px] leading-[11px] text-center"
+                                    style={{ background:"#E9A23B", color:"#2B1a05" }}
+                                    title="Popular this week"
+                                  >★</span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
 
                   <div className="text-[12px] font-[600] mb-[8px]" style={{ color:"#d5cfc3" }}>Finish</div>
-                  <div className="flex gap-2 mb-5">
+                  <div className="flex gap-2 mb-[6px]">
                     {(["Matte","Satin","Semi-Gloss"] as Finish[]).map(f=>(
                       <button
                         key={f}
@@ -489,6 +537,32 @@ export default function App(){
                           borderColor: vizFinish===f ? "#4FB9B0" : "#444448"
                         }}
                       >{f}</button>
+                    ))}
+                  </div>
+                  <div className="text-[11px] mb-5" style={{ color:"#9d968a" }}>
+                    {vizFinish==="Matte" ? "Soft, velvety — hides wall imperfections" :
+                     vizFinish==="Satin" ? "Silky low sheen — easy to clean, most popular" :
+                     "Durable gloss — kitchens, doors & high-touch walls"}
+                  </div>
+
+                  <div className="text-[12px] font-[600] mb-[8px]" style={{ color:"#d5cfc3" }}>Size</div>
+                  <div className="flex gap-2 mb-5">
+                    {(["1L","4L","20L"] as Size[]).map(s=>(
+                      <button
+                        key={s}
+                        onClick={()=>setVizSize(s)}
+                        className="flex-1 py-[8px] rounded-[12px] text-[12px] font-[600] border"
+                        style={{
+                          backgroundColor: vizSize===s ? "#2f2f33" : "transparent",
+                          color:"#F8F4EF",
+                          borderColor: vizSize===s ? "#E9A23B" : "#444448"
+                        }}
+                      >
+                        <div>{s}</div>
+                        <div className="text-[10px] font-[400]" style={{ color:"#bdb7a9" }}>
+                          {products[0] ? kes(products[0].baseKes[s]) : "—"}
+                        </div>
+                      </button>
                     ))}
                   </div>
 
@@ -504,20 +578,16 @@ export default function App(){
                         colourId: vizColour.id,
                         colourName: vizColour.name,
                         colourHex: vizColour.hex,
-                        size:"4L",
+                        size: vizSize,
                         finish: (vizFinish==="Semi-Gloss" ? "Semi-Gloss" : vizFinish==="Satin" ? "Satin" : "Matte"),
-                        unitKes: p.baseKes["4L"],
+                        unitKes: p.baseKes[vizSize],
                       });
                     }}
                     className="btn w-full py-[13px] text-[14.5px] disabled:opacity-40"
                     style={{ background:"#E9A23B", color:"#2B1a05" }}
                   >
-                    Add {vizColour?.name ?? "colour"} to Cart
+                    Add {vizColour?.name ?? "colour"} · {vizSize} — {products[0] ? kes(products[0].baseKes[vizSize]) : ""}
                   </button>
-
-                  <div className="text-[11px] mt-3" style={{ color:"#bdb7a8" }}>
-                    uColor {vizColour?.hex ?? "—"} · uSheen {vizFinish==="Matte" ? "0.00" : vizFinish==="Satin" ? "0.16" : "0.30"} · mask feather 2–3px
-                  </div>
                 </div>
               </div>
             </div>
@@ -962,33 +1032,31 @@ function _applyPaint(
 }
 
 /* ── Visualizer Canvas (painted preview) ── */
+/* ── Room thumbnail that previews the currently selected colour ── */
+function PaintedThumb({ room, colourId }:{ room: Room, colourId: string | null }){
+  const [err, setErr] = useState(false);
+  useEffect(()=>{ setErr(false); }, [room.id, colourId]);
+  const src = !err && colourId ? `/pregenerated/${room.id}_${colourId}.jpg` : room.photo;
+  return <img src={src} onError={()=>setErr(true)} alt={room.name} className="w-16 h-11 object-cover rounded-lg" loading="lazy" />;
+}
+
+/* ── Unified visualizer preview: cross-fade, compare slider, save/share ── */
 function VisualizerCanvas({ room, colour, finish }:{
   room: Room, colour: Colour, finish: Finish
 }){
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const roomData  = useRef<{pixels:Uint8ClampedArray, mask:Uint8Array, w:number, h:number}|null>(null);
-  const [corsErr, setCorsErr] = useState(false);
-  const [imgErr, setImgErr] = useState(false);
+  const sliderRef = useRef<HTMLDivElement>(null);
+  const [mode, setMode] = useState<"pregen"|"canvas"|"original">("pregen");
+  const [displayed, setDisplayed] = useState<string|null>(null);  // last successfully loaded pregen URL
+  const [compare, setCompare] = useState(false);
+  const [pos, setPos] = useState(55);
   const W=1200, H=750;
 
   const pregenUrl = `/pregenerated/${room.id}_${colour.id}.jpg`;
 
-  useEffect(() => {
-    setImgErr(false);
-  }, [room.id, colour.id]);
-
   const satScale = finish==="Matte"?0.90:finish==="Eggshell"?0.83:finish==="Satin"?0.76:0.68;
   const sheenAmt = finish==="Matte"?0:finish==="Eggshell"?0.06:finish==="Satin"?0.13:0.24;
-
-  useEffect(()=>{
-    if (!imgErr) return;
-    setCorsErr(false); roomData.current=null;
-    _loadRoomData(room.photo, room.wallMask||"", W, H).then(d=>{
-      if(!d){ setCorsErr(true); return; }
-      roomData.current=d;
-      paint();
-    });
-  }, [room.photo, room.wallMask, imgErr]);
 
   const paint = useCallback(()=>{
     const rd=roomData.current; const cv=canvasRef.current;
@@ -998,94 +1066,28 @@ function VisualizerCanvas({ room, colour, finish }:{
     cv.getContext("2d")!.putImageData(id,0,0);
   }, [colour.hex, satScale, sheenAmt]);
 
-  useEffect(()=>{ if(!corsErr && imgErr) paint(); }, [colour.hex, finish, paint, corsErr, imgErr]);
-
-  if (!imgErr) {
-    return (
-      <div className="relative w-full">
-        <img 
-          src={pregenUrl} 
-          onError={() => setImgErr(true)} 
-          alt={`${colour.name} • ${finish}`} 
-          className="w-full h-[380px] sm:h-[500px] object-cover block rounded-[18px]"
-        />
-        <div className="absolute bottom-4 left-4 right-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="px-[13px] py-[9px] rounded-[14px] text-[13px] font-[600]" style={{background:"rgba(248,244,239,.96)",color:"#2B2B2E"}}>
-            {colour.name} • {finish}
-          </div>
-          <div className="text-[10.5px] font-mono2 px-[10px] py-[6px] rounded-full" style={{background:"rgba(20,20,22,.72)",color:"#F8F4EF"}}>
-            {room.name} (HD Preview)
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if(corsErr) return (
-    <div className="relative w-full">
-      <img src={room.photo} alt={room.name} className="w-full h-[380px] sm:h-[500px] object-cover block rounded-[18px]"/>
-      <div className="absolute bottom-4 left-4 right-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="px-[13px] py-[9px] rounded-[14px] text-[13px] font-[600]" style={{background:"rgba(248,244,239,.96)",color:"#2B2B2E"}}>{colour.name} • {finish}</div>
-        <div className="text-[10.5px] font-mono2 px-[10px] py-[6px] rounded-full" style={{background:"rgba(20,20,22,.72)",color:"#F8F4EF"}}>{room.name}</div>
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="relative w-full">
-      <canvas ref={canvasRef} className="w-full h-[380px] sm:h-[500px] block rounded-[18px]" style={{objectFit:"cover"}}/>
-      <div className="absolute bottom-4 left-4 right-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="px-[13px] py-[9px] rounded-[14px] text-[13px] font-[600]" style={{background:"rgba(248,244,239,.96)",color:"#2B2B2E"}}>
-          {colour.name} • {finish}
-        </div>
-        <div className="text-[10.5px] font-mono2 px-[10px] py-[6px] rounded-full" style={{background:"rgba(20,20,22,.72)",color:"#F8F4EF"}}>
-          {room.name}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ── Before / After Slider (canvas-powered) ── */
-function BeforeAfterSlider({ room, colour, finish }:{
-  room: Room, colour: Colour, finish: Finish
-}){
-  const [pos, setPos] = useState(54);
-  const sliderRef  = useRef<HTMLDivElement>(null);
-  const afterRef   = useRef<HTMLCanvasElement>(null);
-  const roomData   = useRef<{pixels:Uint8ClampedArray, mask:Uint8Array, w:number, h:number}|null>(null);
-  const [corsErr, setCorsErr] = useState(false);
-  const [imgErr, setImgErr] = useState(false);
-  const W=900, H=560;
-
-  const pregenUrl = `/pregenerated/${room.id}_${colour.id}.jpg`;
-
-  useEffect(() => {
-    setImgErr(false);
-  }, [room.id, colour.id]);
-
-  const satScale = finish==="Matte"?0.90:finish==="Eggshell"?0.83:finish==="Satin"?0.76:0.68;
-  const sheenAmt = finish==="Matte"?0:finish==="Eggshell"?0.06:finish==="Satin"?0.13:0.24;
-
+  /* Preload the pregen image off-DOM, swap only when ready — no flash.
+     On failure, fall back to canvas recolor, then to the original photo. */
   useEffect(()=>{
-    if (!imgErr) return;
-    setCorsErr(false); roomData.current=null;
-    _loadRoomData(room.photo, room.wallMask||"", W, H).then(d=>{
-      if(!d){ setCorsErr(true); return; }
-      roomData.current=d;
-      paintAfter();
-    });
-  }, [room.photo, room.wallMask, imgErr]);
+    let alive = true;
+    const img = new Image();
+    img.onload = ()=>{ if(!alive) return; setMode("pregen"); setDisplayed(pregenUrl); };
+    img.onerror = ()=>{
+      if(!alive) return;
+      roomData.current=null;
+      _loadRoomData(room.photo, room.wallMask||"", W, H).then(d=>{
+        if(!alive) return;
+        if(!d){ setMode("original"); return; }
+        roomData.current=d;
+        setMode("canvas");
+        paint();
+      });
+    };
+    img.src = pregenUrl;
+    return ()=>{ alive=false; };
+  }, [pregenUrl, room.photo, room.wallMask, paint]);
 
-  const paintAfter = useCallback(()=>{
-    const rd=roomData.current; const cv=afterRef.current;
-    if(!rd||!cv) return;
-    cv.width=rd.w; cv.height=rd.h;
-    const id = _applyPaint(rd.pixels, rd.mask, colour.hex, satScale, sheenAmt, rd.w, rd.h);
-    cv.getContext("2d")!.putImageData(id,0,0);
-  }, [colour.hex, satScale, sheenAmt]);
-
-  useEffect(()=>{ if(!corsErr && imgErr) paintAfter(); }, [colour.hex, finish, paintAfter, corsErr, imgErr]);
+  useEffect(()=>{ if(mode==="canvas") paint(); }, [colour.hex, finish, paint, mode]);
 
   const move=(clientX:number)=>{
     const el=sliderRef.current; if(!el) return;
@@ -1093,44 +1095,88 @@ function BeforeAfterSlider({ room, colour, finish }:{
     setPos(Math.max(0,Math.min(100,(clientX-r.left)/r.width*100)));
   };
 
+  const saveLook = async ()=>{
+    try {
+      const url = mode==="pregen" ? (displayed ?? pregenUrl)
+        : canvasRef.current ? canvasRef.current.toDataURL("image/jpeg", 0.9) : room.photo;
+      const resp = await fetch(url);
+      const blob = await resp.blob();
+      const fileName = `micmikes-${room.name.replace(/\s+/g,"-").toLowerCase()}-${colour.name.replace(/\s+/g,"-").toLowerCase()}.jpg`;
+      const file = new File([blob], fileName, { type:"image/jpeg" });
+      if (navigator.canShare?.({ files:[file] })) {
+        await navigator.share({ files:[file], title:`${colour.name} — MicMikes Paints`, text:`${room.name} painted in ${colour.name} (${colour.hex})` });
+      } else {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }
+    } catch { /* user cancelled share — fine */ }
+  };
+
+  const painted = mode==="pregen"
+    ? <img src={displayed ?? pregenUrl} alt={`${colour.name} • ${finish}`} draggable={false}
+        className="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
+        style={compare ? {clipPath:`inset(0 ${(100-pos).toFixed(1)}% 0 0)`} : undefined} />
+    : mode==="canvas"
+    ? <canvas ref={canvasRef} className="absolute inset-0 w-full h-full"
+        style={{objectFit:"cover", ...(compare ? {clipPath:`inset(0 ${(100-pos).toFixed(1)}% 0 0)`} : {})}} />
+    : <img src={room.photo} alt={room.name} draggable={false} className="absolute inset-0 w-full h-full object-cover" />;
+
   return (
     <div
       ref={sliderRef}
-      className="relative w-full h-[280px] sm:h-[340px] overflow-hidden rounded-[18px] select-none cursor-ew-resize"
-      style={{background:"#111215", touchAction:"none"}}
-      onMouseDown={e=>move(e.clientX)}
-      onMouseMove={e=>e.buttons===1&&move(e.clientX)}
-      onTouchStart={e=>move(e.touches[0].clientX)}
-      onTouchMove={e=>move(e.touches[0].clientX)}
-      aria-label="Before after slider"
+      className={`relative w-full h-[420px] sm:h-[560px] overflow-hidden rounded-[18px] select-none ${compare ? "cursor-ew-resize" : ""}`}
+      style={compare ? {touchAction:"none"} : undefined}
+      onMouseDown={compare ? (e=>move(e.clientX)) : undefined}
+      onMouseMove={compare ? (e=>{ if(e.buttons===1) move(e.clientX); }) : undefined}
+      onTouchStart={compare ? (e=>move(e.touches[0].clientX)) : undefined}
+      onTouchMove={compare ? (e=>move(e.touches[0].clientX)) : undefined}
+      aria-label={compare ? "Before / after comparison — drag to reveal" : `${room.name} painted in ${colour.name}`}
     >
-      {/* BEFORE — original photo */}
-      <img src={room.photo} alt="before" className="absolute inset-0 w-full h-full object-cover" draggable={false}/>
-      {/* AFTER — pregenerated image or fallback canvas, revealed right of handle */}
-      {!imgErr ? (
-        <img
-          src={pregenUrl}
-          onError={() => setImgErr(true)}
-          alt="after"
-          className="absolute inset-0 w-full h-full object-cover"
-          style={{clipPath:`inset(0 ${(100-pos).toFixed(1)}% 0 0)`}}
-          draggable={false}
-        />
-      ) : (
-        !corsErr && (
-          <canvas
-            ref={afterRef}
-            className="absolute inset-0 w-full h-full"
-            style={{objectFit:"cover", clipPath:`inset(0 ${(100-pos).toFixed(1)}% 0 0)`}}
-          />
-        )
+      {/* original photo sits underneath; painted layer covers or is clipped */}
+      <img src={room.photo} alt="" aria-hidden draggable={false} className="absolute inset-0 w-full h-full object-cover" />
+      {painted}
+
+      {compare && mode!=="original" && (
+        <>
+          <div className="absolute top-0 bottom-0 pointer-events-none" style={{left:`${pos}%`,width:"2px",background:"#F8F4EF",boxShadow:"0 0 18px rgba(0,0,0,.55)"}}/>
+          <div className="absolute pointer-events-none" style={{left:`calc(${pos}% - 18px)`,top:"50%",transform:"translateY(-50%)"}}>
+            <div className="w-9 h-9 rounded-full bg-[#F8F4EF] shadow-lg flex items-center justify-center text-[13px]" aria-hidden>↔</div>
+          </div>
+          <div className="absolute left-3 top-3 text-[10.5px] font-mono2 px-[9px] py-[5px] rounded-full bg-black/55 text-white pointer-events-none">before</div>
+          <div className="absolute right-3 top-3 text-[10.5px] font-mono2 px-[9px] py-[5px] rounded-full bg-black/55 text-white pointer-events-none">after</div>
+        </>
       )}
-      {/* divider + handle */}
-      <div className="absolute top-0 bottom-0 pointer-events-none" style={{left:`${pos}%`,width:"2px",background:"#F8F4EF",boxShadow:"0 0 18px rgba(0,0,0,.55)"}}/>
-      <div className="absolute pointer-events-none" style={{left:`calc(${pos}% - 18px)`,top:"50%",transform:"translateY(-50%)"}}>
-        <div className="w-9 h-9 rounded-full bg-[#F8F4EF] shadow-lg flex items-center justify-center text-[13px]" aria-hidden>↔</div>
+
+      <div className="absolute bottom-4 left-4 right-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="px-[13px] py-[9px] rounded-[14px] text-[13px] font-[600]" style={{background:"rgba(248,244,239,.96)",color:"#2B2B2E"}}>
+          {colour.name} • {finish}
+        </div>
+        <div className="flex items-center gap-2">
+          {mode!=="original" && (
+            <button
+              onClick={e=>{ e.stopPropagation(); setCompare(v=>!v); }}
+              onMouseDown={e=>e.stopPropagation()}
+              onTouchStart={e=>e.stopPropagation()}
+              className="text-[12px] font-[600] px-[12px] py-[8px] rounded-full"
+              style={{ background: compare ? "#4FB9B0" : "rgba(20,20,22,.72)", color: compare ? "#0b2c29" : "#F8F4EF" }}
+            >
+              {compare ? "✓ Comparing" : "◐ Compare"}
+            </button>
+          )}
+          <button
+            onClick={e=>{ e.stopPropagation(); saveLook(); }}
+            onMouseDown={e=>e.stopPropagation()}
+            onTouchStart={e=>e.stopPropagation()}
+            className="text-[12px] font-[600] px-[12px] py-[8px] rounded-full"
+            style={{ background:"rgba(20,20,22,.72)", color:"#F8F4EF" }}
+          >
+            ↓ Save this look
+          </button>
+        </div>
       </div>
-      <div className="absolute left-3 bottom-3 text-[10.5px] font-mono2 px-[9px] py-[5px] rounded-full bg-black/55 text-white select-none">drag</div>
     </div>
   );
 }

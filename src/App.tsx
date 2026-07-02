@@ -116,7 +116,7 @@ export default function App(){
   /* popular colours (aggregated from cart_events swatch clicks + adds) */
   const [popularIds, setPopularIds] = useState<string[]>([]);
   useEffect(()=>{
-    fetch("/api/popular-colours").then(r=>r.ok ? r.json() : [])
+    fetch("/api/colours?popular=1").then(r=>r.ok ? r.json() : [])
       .then(ids=> Array.isArray(ids) && setPopularIds(ids.slice(0,3)))
       .catch(()=>{});
   }, []);

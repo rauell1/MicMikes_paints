@@ -260,10 +260,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: "Missing required fields: image_url, paint_hex, finish" });
   }
 
-  // Simple Header-based API key Auth
+  // Header-based API key auth — fail closed: if the key isn't configured,
+  // the endpoint is disabled rather than open (it fetches arbitrary URLs
+  // and burns compute; the visualizer uses pre-generated images instead).
   const apiKey = req.headers["x-api-key"] || (req.headers["authorization"] as string)?.replace("Bearer ", "");
   const expectedApiKey = process.env.RECOLOUR_API_KEY;
-  if (expectedApiKey && apiKey !== expectedApiKey) {
+  if (!expectedApiKey || apiKey !== expectedApiKey) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 

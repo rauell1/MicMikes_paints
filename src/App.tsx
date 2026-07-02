@@ -64,7 +64,6 @@ const FAMILIES: ColourFamily[] = ["Neutrals","Warm Earth","Cool Green","Blue","R
 const ALL_FAMILIES: (ColourFamily | "All")[] = ["All", ...FAMILIES];
 
 const kes = (n:number)=> `KES ${n.toLocaleString("en-KE")}`;
-const uid = ()=> Math.random().toString(36).slice(2,9);
 
 /* ── App ── */
 export default function App(){
@@ -831,7 +830,7 @@ export default function App(){
             setCheckoutOpen(false);
             setCart([]);
             localStorage.removeItem("micmikes-cart");
-            showToast(`Order ${orderMeta.invoice} confirmed ✓`);
+            showToast(`Order ${orderMeta.invoice} received ✓`);
           }}
         />
       )}
@@ -1188,19 +1187,19 @@ function CheckoutDialog({
   subtotal:number; deliveryFee:number; total:number; cartCount:number;
   cart: CartItem[];
   onClose:()=>void;
-  onSuccess:(meta:{invoice:string, mpesaRef:string})=>void;
+  onSuccess:(meta:{invoice:string})=>void;
 }){
-  const [step, setStep] = useState<"form"|"stk_sending"|"stk_pin"|"success">("form");
+  const [step, setStep] = useState<"form"|"placing"|"success">("form");
   const [form, setForm] = useState({
-    name:"Roy Okola",
-    email:"roy@micmikespaints.co.ke",
-    phone:"0712345678",
+    name:"",
+    email:"",
+    phone:"",
     county:"Nairobi",
-    town:"Westlands",
-    address:"Riverside Drive 47"
+    town:"",
+    address:""
   });
   const [err, setErr] = useState("");
-  const [countdown, setCountdown] = useState(3);
+  const [reference, setReference] = useState("");
 
   const normalizePhone = (p:string)=>{
     let s = p.replace(/\s+/g,"");
@@ -1211,51 +1210,36 @@ function CheckoutDialog({
   };
   const phoneNorm = normalizePhone(form.phone);
 
-  const startMpesa = async ()=>{
+  const placeOrder = async ()=>{
     if(!form.name.trim() || !form.email.includes("@")){ setErr("Enter name & valid email"); return; }
     if(!/^2547\d{8}$/.test(phoneNorm)){ setErr("M-Pesa number must be 2547XXXXXXXX"); return; }
+    if(!form.town.trim() || !form.address.trim()){ setErr("Enter delivery town & address"); return; }
     setErr("");
-    setStep("stk_sending");
+    setStep("placing");
     try {
-      await fetch("/api/orders", {
+      const resp = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: form.name, email: form.email, phone: phoneNorm,
           county: form.county, town: form.town, address: form.address,
-          subtotalKes: subtotal, deliveryKes: deliveryFee, totalKes: total,
           items: cart.map(i=>({
             productSlug: i.productSlug,
             colourId: i.colourId,
             size: i.size, finish: i.finish,
-            quantity: i.quantity, unitKes: i.unitKes,
+            quantity: i.quantity,
           })),
         }),
       });
-    } catch { /* order saved best-effort; continue to simulate M-Pesa */ }
-    setTimeout(()=>{ setStep("stk_pin"); setCountdown(3); }, 2000);
-  };
-
-  // pin countdown → success
-  useEffect(()=>{
-    if(step!=="stk_pin") return;
-    if(countdown<=0){
+      const data = await resp.json();
+      if(!resp.ok) throw new Error(data.error || "Order failed");
+      setReference(data.reference);
       setStep("success");
-      setTimeout(()=>{
-        const d = new Date();
-        const y = d.getFullYear();
-        const m = String(d.getMonth()+1).padStart(2,"0");
-        const da = String(d.getDate()).padStart(2,"0");
-        const seq = String(Math.floor(Math.random()*9000)+1000);
-        const invoice = `INV-${y}${m}${da}-${seq}`;
-        const mpesaRef = (Math.random().toString(36).toUpperCase().slice(2,5) + Math.floor(100000+Math.random()*899999));
-        onSuccess({ invoice, mpesaRef });
-      }, 900);
-      return;
+    } catch(e:any) {
+      setErr(e.message || "Could not place order — please try again");
+      setStep("form");
     }
-    const t = setTimeout(()=>setCountdown(c=>c-1),1000);
-    return ()=>clearTimeout(t);
-  }, [step, countdown, onSuccess]);
+  };
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
@@ -1311,44 +1295,39 @@ function CheckoutDialog({
                 <div className="flex justify-between text-[17px] font-[700] pt-[8px] border-t" style={{ borderColor:"#eadcc4" }}><span>Total</span><span>{kes(total)}</span></div>
               </div>
 
-              <button onClick={startMpesa} className="btn w-full py-[13px] text-[15px] text-white" style={{ background:"#0aa85a" }}>
-                Pay {kes(total)} via M-Pesa
+              <button onClick={placeOrder} className="btn w-full py-[13px] text-[15px] text-white" style={{ background:"#0aa85a" }}>
+                Place order — {kes(total)}
               </button>
               <div className="text-[11.5px] mm-muted text-center leading-relaxed">
-                Payments encrypted end-to-end. Protected under Kenya’s Data Protection Act.<br/>
-                Business Short Code 174379 · sandbox
+                We'll send an M-Pesa payment request to your phone to complete the order.<br/>
+                Your details are protected under Kenya's Data Protection Act.
               </div>
             </div>
           )}
 
-          {step==="stk_sending" && (
+          {step==="placing" && (
             <div className="py-6 text-center">
-              <div className="text-[15px] font-[600] mb-2">Sending STK Push to {phoneNorm}…</div>
-              <div className="text-[13px] mm-muted">POST /api/mpesa/stkpush</div>
+              <div className="text-[15px] font-[600] mb-2">Placing your order…</div>
               <div className="w-10 h-10 mx-auto mt-5 rounded-full border-[3px] border-[#4FB9B0] border-t-transparent animate-spin"/>
-              <div className="text-[11.5px] font-mono2 mm-muted mt-4">CheckoutRequestID: ws_CO_{uid()}</div>
-            </div>
-          )}
-
-          {step==="stk_pin" && (
-            <div className="py-4">
-              <div className="rounded-[16px] p-4 mb-4" style={{ background:"#f1fbf6", border:"1px solid #b9e7cc" }}>
-                <div className="text-[15px] font-[700]" style={{ color:"#0b8a4a" }}>STK Push sent ✓</div>
-                <div className="text-[13.5px] mt-1">Enter your M-Pesa PIN on your phone</div>
-                <div className="text-[12px] font-mono2 mt-2" style={{ color:"#0b8a4a" }}>{phoneNorm} · polling /api/mpesa/status … {countdown}s</div>
-                <div className="h-[7px] rounded-full mt-3 overflow-hidden" style={{ background:"#d7f3e2" }}>
-                  <div className="h-full" style={{ background:"#18b96b", width:`${(1-countdown/3)*100}%`, transition:"width .5s linear" }}/>
-                </div>
-              </div>
-              <div className="text-[12px] mm-muted text-center">Check your phone screen now — Safaricom pop-up</div>
             </div>
           )}
 
           {step==="success" && (
             <div className="py-6 text-center">
               <div className="w-14 h-14 mx-auto rounded-full flex items-center justify-center text-white text-[22px] mb-3" style={{ background:"#15a25a" }}>✓</div>
-              <div className="font-display text-[22px] mb-1">Payment confirmed</div>
-              <div className="text-[13.5px] mm-muted">Generating invoice INV-YYYYMMDD-XXXX …</div>
+              <div className="font-display text-[22px] mb-1">Order received</div>
+              <div className="text-[14px] font-mono2 font-[600] mb-3">{reference}</div>
+              <div className="text-[13.5px] mm-muted leading-relaxed mb-5">
+                Thank you {form.name.split(" ")[0]}! We'll send an M-Pesa payment request<br/>
+                to <span className="font-mono2">{phoneNorm}</span> to complete your order.
+              </div>
+              <button
+                onClick={()=>onSuccess({ invoice: reference })}
+                className="btn px-8 py-[12px] text-[14px] text-white"
+                style={{ background:"#15a25a" }}
+              >
+                Done
+              </button>
             </div>
           )}
         </div>

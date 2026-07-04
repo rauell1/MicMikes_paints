@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "db:seed": "node --env-file=.env.local --import=tsx/esm scripts/seed.ts"
+    "db:seed": "node --env-file=.env.local --import=tsx/esm scripts/seed.ts",
+    "db:seed:catalogue": "node --env-file=.env.local --import=tsx/esm scripts/seed-catalogue.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

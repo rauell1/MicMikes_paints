@@ -45,6 +45,50 @@ const FALLBACK_ROOMS: Room[] = [
   { id: "fallback-office", name: "Home Office", photo: "https://images.pexels.com/photos/667838/pexels-photo-667838.jpeg?auto=compress&cs=tinysrgb&w=1400" },
 ];
 
+const FALLBACK_COLOURS: Colour[] = [
+  { id: "fc-01", name: "Brilliant White",  hex: "#F8F8F6", family: "Neutrals" },
+  { id: "fc-02", name: "Antique White",    hex: "#F5F0E8", family: "Neutrals" },
+  { id: "fc-03", name: "Ivory Cream",      hex: "#F4EDD8", family: "Neutrals" },
+  { id: "fc-04", name: "Stone Grey",       hex: "#C9C5BE", family: "Neutrals" },
+  { id: "fc-05", name: "Warm Pebble",      hex: "#B8B0A4", family: "Neutrals" },
+  { id: "fc-06", name: "Slate",            hex: "#8C8882", family: "Neutrals" },
+  { id: "fc-07", name: "Desert Sand",      hex: "#D4B896", family: "Warm Earth" },
+  { id: "fc-08", name: "Warm Caramel",     hex: "#B8845A", family: "Warm Earth" },
+  { id: "fc-09", name: "Dark Walnut",      hex: "#6B4423", family: "Warm Earth" },
+  { id: "fc-10", name: "Mint Breeze",      hex: "#C8DDD0", family: "Cool Green" },
+  { id: "fc-11", name: "Sage Meadow",      hex: "#8FAF90", family: "Cool Green" },
+  { id: "fc-12", name: "Forest Deep",      hex: "#3A6B4A", family: "Cool Green" },
+  { id: "fc-13", name: "Sky Mist",         hex: "#C5D8E8", family: "Blue" },
+  { id: "fc-14", name: "Ocean Breeze",     hex: "#6B9AB8", family: "Blue" },
+  { id: "fc-15", name: "Deep Navy",        hex: "#1E3A5F", family: "Blue" },
+  { id: "fc-16", name: "Sunflower",        hex: "#F5D76E", family: "Yellow & Gold" },
+  { id: "fc-17", name: "Mango",            hex: "#F4A135", family: "Yellow & Gold" },
+  { id: "fc-18", name: "Terracotta",       hex: "#C8623A", family: "Red & Terracotta" },
+  { id: "fc-19", name: "Rose Blush",       hex: "#E8B4B0", family: "Red & Terracotta" },
+  { id: "fc-20", name: "Crimson",          hex: "#9B2335", family: "Red & Terracotta" },
+];
+
+const FALLBACK_PRODUCTS: Product[] = [
+  {
+    id: "fp-01", slug: "keekorok-premium-emulsion", name: "Keekorok Premium Emulsion",
+    blurb: "Superior washable emulsion. Vivid, long-lasting colour for interior walls & ceilings.",
+    category: "Paint", image: "",
+    baseKes: { "1L": 850, "4L": 2800, "20L": 11500 },
+  },
+  {
+    id: "fp-02", slug: "keekorok-satin-finish", name: "Keekorok Satin Finish",
+    blurb: "Silky satin sheen — ideal for living rooms, hallways & feature walls.",
+    category: "Paint", image: "",
+    baseKes: { "1L": 950, "4L": 3200, "20L": 13500 },
+  },
+  {
+    id: "fp-03", slug: "keekorok-primer-sealer", name: "Keekorok Primer & Sealer",
+    blurb: "Multi-surface primer for new plaster, timber & previously painted surfaces.",
+    category: "Primer", image: "",
+    baseKes: { "1L": 700, "4L": 2200, "20L": 9000 },
+  },
+];
+
 /* ── VisualizerCanvas ── */
 function VisualizerCanvas({ room, colour, finish }: { room: Room; colour: Colour; finish: Finish }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -285,22 +329,24 @@ function CheckoutDialog({
 
 /* ── App ── */
 export default function App() {
-  const [colours, setColours] = useState<Colour[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [rooms, setRooms] = useState<Room[]>([]);
+  const [colours, setColours] = useState<Colour[]>(FALLBACK_COLOURS);
+  const [products, setProducts] = useState<Product[]>(FALLBACK_PRODUCTS);
+  const [rooms, setRooms] = useState<Room[]>(FALLBACK_ROOMS);
   const [dataLoading, setDataLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/colours").then(r => r.json()),
-      fetch("/api/products").then(r => r.json()),
-      fetch("/api/rooms").then(r => r.json()),
+      fetch("/api/colours").then(r => r.ok ? r.json() : FALLBACK_COLOURS).catch(() => FALLBACK_COLOURS),
+      fetch("/api/products").then(r => r.ok ? r.json() : FALLBACK_PRODUCTS).catch(() => FALLBACK_PRODUCTS),
+      fetch("/api/colours?type=rooms").then(r => r.ok ? r.json() : FALLBACK_ROOMS).catch(() => FALLBACK_ROOMS),
     ]).then(([c, p, r]) => {
-      setColours(c as Colour[]);
-      setProducts(p as Product[]);
+      const cols = Array.isArray(c) && c.length > 0 ? (c as Colour[]) : FALLBACK_COLOURS;
+      const prods = Array.isArray(p) && p.length > 0 ? (p as Product[]) : FALLBACK_PRODUCTS;
       const dbRooms = Array.isArray(r) && r.length > 0 ? (r as Room[]) : FALLBACK_ROOMS;
+      setColours(cols);
+      setProducts(prods);
       setRooms(dbRooms);
-    }).catch(console.error).finally(() => setDataLoading(false));
+    }).finally(() => setDataLoading(false));
   }, []);
 
   const [cart, setCart] = useState<CartItem[]>(() => {
@@ -326,7 +372,7 @@ export default function App() {
   const [vizFinish, setVizFinish] = useState<Finish>("Satin");
   const [vizSize, setVizSize] = useState<Size>("4L");
   const vizRoom = rooms[vizRoomIdx] ?? null;
-  const vizColour = (vizColourId ? colours.find(c => c.id === vizColourId) : null) ?? colours.find(c => c.name === "Indian Ocean") ?? colours[0] ?? null;
+  const vizColour = (vizColourId ? colours.find(c => c.id === vizColourId) : null) ?? colours.find(c => c.name === "Ocean Breeze") ?? colours[0] ?? null;
 
   const [popularIds, setPopularIds] = useState<string[]>([]);
   useEffect(() => {
@@ -524,7 +570,7 @@ export default function App() {
                     <img src="https://images.pexels.com/photos/1571460/pexels-photo-1571460.jpeg?auto=compress&cs=tinysrgb&w=1400" alt="Keekorok living room" className="w-full h-[340px] sm:h-[430px] object-cover" loading="eager" />
                     <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(43,43,46,0.08) 0%, rgba(43,43,46,0.22) 100%)"}}/> 
                     <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between gap-3">
-                      <div className="px-[14px] py-[9px] rounded-[14px] bg-white/95 text-[13px] font-[600]">Indian Ocean • Satin</div>
+                      <div className="px-[14px] py-[9px] rounded-[14px] bg-white/95 text-[13px] font-[600]">Ocean Breeze • Satin</div>
                       <div className="px-[12px] py-[8px] rounded-full text-[11px] font-mono2 bg-[#2B2B2E] text-[#F8F4EF]">Keekorok</div>
                     </div>
                   </div>

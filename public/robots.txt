@@ -1,4 +1,6 @@
 User-agent: *
 Allow: /
+Disallow: /admin
+Disallow: /api/
 
-Sitemap: https://micmikespaints.co.ke/sitemap.xml
+Sitemap: https://mic-mikes-paints.vercel.app/sitemap.xml

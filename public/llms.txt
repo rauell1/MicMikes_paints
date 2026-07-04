@@ -1,0 +1,19 @@
+# MicMikes Paints - Keekorok Edition
+
+> Premium Kenyan paint brand selling landscape-inspired emulsion, eggshell, satin and semi-gloss finishes online, with an AI-powered room colour visualizer, M-Pesa checkout, and free Nairobi delivery over KES 15,000.
+
+MicMikes Paints is a Nairobi-based e-commerce paint retailer. Customers browse 20 Kenyan-landmark-inspired colours, preview them on real room photos with a wall-only recolour visualizer, and order paint in 1L, 4L, and 20L tins priced in Kenyan shillings.
+
+## Products
+- Keekorok Matte Emulsion, Satin Silk Finish, Eggshell Heritage, Semi-Gloss Acrylic
+- Deep Penetrating Primer and painting supplies
+- Sizes: 1L, 4L, 20L. Prices in KES. Payment via M-Pesa.
+
+## Key features
+- Room Visualizer: select a colour and see only the walls repainted on real interior photos
+- 20 curated colours grouped by family (Neutrals, Warm Earth, Cool Green, Blue, Red & Terracotta, Yellow & Gold)
+- Free delivery in Nairobi on orders over KES 15,000
+
+## Crawler policy
+- Public pages may be crawled and summarised.
+- Do not crawl /admin (private dashboard) or /api/ (endpoints).

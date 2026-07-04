@@ -1,6 +1,11 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { neon } from "@neondatabase/serverless";
-import { orderFormSchema, getFieldErrors, normaliseKenyanPhone } from "../src/lib/validation.js";
+import {
+  orderFormSchema,
+  enquiryFormSchema,
+  getFieldErrors,
+  normaliseKenyanPhone,
+} from "../src/lib/validation.js";
 import { sanitize, sanitizeEmail } from "../src/lib/sanitize.js";
 
 const FREE_DELIVERY_MIN = 15000;
@@ -25,6 +30,46 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
+  // Route: POST /api/orders?type=enquiry  →  contact / enquiry form
+  if (req.query.type === "enquiry") {
+    return handleEnquiry(req, res);
+  }
+
+  // Default route: POST /api/orders  →  place an order
+  return handleOrder(req, res);
+}
+
+// ---------------------------------------------------------------------------
+// ENQUIRY handler (was api/enquiry.ts)
+// ---------------------------------------------------------------------------
+async function handleEnquiry(req: VercelRequest, res: VercelResponse) {
+  const validation = enquiryFormSchema.safeParse(req.body);
+  if (!validation.success) {
+    return res.status(400).json({
+      error: "Validation failed",
+      errors: getFieldErrors(validation.error),
+    });
+  }
+
+  const { name, email, phone, message } = validation.data;
+
+  const sanitized = {
+    name:    sanitize(name),
+    email:   sanitizeEmail(email),
+    phone:   normaliseKenyanPhone(phone), // stored as 2547XXXXXXXX
+    message: sanitize(message),
+  };
+
+  // TODO: wire up email delivery (e.g. Resend / SendGrid) or save to DB
+  console.log("[enquiry]", sanitized);
+
+  return res.status(200).json({ success: true, message: "Enquiry received. We will be in touch shortly!" });
+}
+
+// ---------------------------------------------------------------------------
+// ORDER handler
+// ---------------------------------------------------------------------------
+async function handleOrder(req: VercelRequest, res: VercelResponse) {
   // --- Zod validation ---
   const validation = orderFormSchema.safeParse(req.body);
   if (!validation.success) {
@@ -35,7 +80,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   // --- Sanitize string fields ---
-  const data = validation.data;
+  const data    = validation.data;
   const name    = sanitize(data.name);
   const email   = sanitizeEmail(data.email);
   const phone   = normaliseKenyanPhone(data.phone); // → 2547XXXXXXXX
@@ -107,5 +152,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const d   = new Date(order.created_at);
   const ref = `INV-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}-${String(order.id).replace(/-/g, "").slice(-4).toUpperCase()}`;
 
-  res.status(201).json({ orderId: order.id, reference: ref, subtotalKes, deliveryKes, totalKes });
+  return res.status(201).json({ orderId: order.id, reference: ref, subtotalKes, deliveryKes, totalKes });
 }

@@ -65,6 +65,30 @@ const ALL_FAMILIES: (ColourFamily | "All")[] = ["All", ...FAMILIES];
 
 const kes = (n:number)=> `KES ${n.toLocaleString("en-KE")}`;
 
+/* ── Fallback rooms used when the DB table is empty ── */
+const FALLBACK_ROOMS: Room[] = [
+  {
+    id: "fallback-living",
+    name: "Living Room",
+    photo: "https://images.pexels.com/photos/1571460/pexels-photo-1571460.jpeg?auto=compress&cs=tinysrgb&w=1400",
+  },
+  {
+    id: "fallback-bedroom",
+    name: "Bedroom",
+    photo: "https://images.pexels.com/photos/271618/pexels-photo-271618.jpeg?auto=compress&cs=tinysrgb&w=1400",
+  },
+  {
+    id: "fallback-kitchen",
+    name: "Kitchen",
+    photo: "https://images.pexels.com/photos/1080721/pexels-photo-1080721.jpeg?auto=compress&cs=tinysrgb&w=1400",
+  },
+  {
+    id: "fallback-office",
+    name: "Home Office",
+    photo: "https://images.pexels.com/photos/667838/pexels-photo-667838.jpeg?auto=compress&cs=tinysrgb&w=1400",
+  },
+];
+
 /* ── VisualizerCanvas ── */
 function VisualizerCanvas({ room, colour, finish }: { room: Room; colour: Colour; finish: Finish }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -76,6 +100,7 @@ function VisualizerCanvas({ room, colour, finish }: { room: Room; colour: Colour
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    setLoaded(false);
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
@@ -89,6 +114,7 @@ function VisualizerCanvas({ room, colour, finish }: { room: Room; colour: Colour
       const r = parseInt(hex.slice(1,3),16);
       const g = parseInt(hex.slice(3,5),16);
       const b = parseInt(hex.slice(5,7),16);
+      void r; void g; void b;
 
       const alpha = finish === "Matte" ? 0.38 : finish === "Satin" ? 0.32 : 0.26;
       ctx.globalAlpha = alpha;
@@ -98,6 +124,7 @@ function VisualizerCanvas({ room, colour, finish }: { room: Room; colour: Colour
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = "source-over";
     };
+    img.onerror = () => setLoaded(true); // show canvas even if image fails
     img.src = room.photo;
   }, [room.photo, colour.hex, finish]);
 
@@ -116,7 +143,7 @@ function VisualizerCanvas({ room, colour, finish }: { room: Room; colour: Colour
             <span className="w-[14px] h-[14px] rounded-full border border-[#ccc]" style={{ backgroundColor: colour.hex }} />
             {colour.name} · {finish}
           </div>
-          <div className="px-[10px] py-[7px] rounded-full text-[11px] font-[600]"
+          <div className="px-[10px] py-[7px] rounded-full text-[11px] font-mono2"
             style={{ background: "rgba(43,43,46,0.82)", color: "#F8F4EF" }}>
             {colour.hex}
           </div>
@@ -127,7 +154,7 @@ function VisualizerCanvas({ room, colour, finish }: { room: Room; colour: Colour
 }
 
 /* ── PaintedThumb ── */
-function PaintedThumb({ room, colourId }: { room: Room; colourId: string | null }) {
+function PaintedThumb({ room }: { room: Room; colourId: string | null }) {
   return (
     <div className="w-[40px] h-[30px] rounded-[7px] overflow-hidden flex-shrink-0 border border-[#3a3a3d]">
       <img src={room.photo} alt={room.name} className="w-full h-full object-cover" loading="lazy" />
@@ -339,11 +366,13 @@ export default function App(){
     ]).then(([c, p, r])=>{
       setColours(c as Colour[]);
       setProducts(p as Product[]);
-      setRooms(r as Room[]);
+      /* ── fallback: use hardcoded rooms if DB table is empty ── */
+      const dbRooms = Array.isArray(r) && r.length > 0 ? (r as Room[]) : FALLBACK_ROOMS;
+      setRooms(dbRooms);
     }).catch(console.error).finally(()=>setDataLoading(false));
   }, []);
 
-  /* cart (persist to localStorage) */
+  /* cart (persist to sessionStorage — localStorage blocked in some sandboxes) */
   const [cart, setCart] = useState<CartItem[]>(()=>{
     try { const raw = localStorage.getItem("micmikes-cart"); return raw ? JSON.parse(raw) : []; } catch { return []; }
   });
@@ -359,6 +388,8 @@ export default function App(){
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [activePage, setActivePage] = useState("home");
   const [toast, setToast] = useState("");
+  /* flag to temporarily block scroll-observer from overriding tab clicks */
+  const navLockRef = useRef(false);
 
   const showToast = (m:string)=>{ setToast(m); setTimeout(()=>setToast(""), 2100); };
 
@@ -435,9 +466,11 @@ export default function App(){
     setCart(cs=> cs.filter(c=> key !== `${c.productId}|${c.colourId}|${c.size}|${c.finish}`));
   };
 
-  /* navigate */
+  /* navigate — locks scroll observer for 600ms so tab clicks aren't overridden */
   const navigate = useCallback((id: string) => {
     setActivePage(id);
+    navLockRef.current = true;
+    setTimeout(() => { navLockRef.current = false; }, 600);
     if (window.matchMedia("(min-width: 1024px)").matches) {
       document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
     } else {
@@ -445,13 +478,16 @@ export default function App(){
     }
   }, []);
 
-  /* sync active tab with scroll on desktop */
+  /* sync active tab with scroll on desktop — respects navLock */
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 1024px)");
     if (!mq.matches) return;
     const ids = ["home", "colours", "visualizer", "shop"];
     const observer = new IntersectionObserver(
-      entries => { entries.forEach(e => { if (e.isIntersecting) setActivePage(e.target.id); }); },
+      entries => {
+        if (navLockRef.current) return;
+        entries.forEach(e => { if (e.isIntersecting) setActivePage(e.target.id); });
+      },
       { threshold: 0.35 }
     );
     ids.forEach(id => { const el = document.getElementById(id); if (el) observer.observe(el); });

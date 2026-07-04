@@ -1,12 +1,27 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { neon } from "@neondatabase/serverless";
 
+// Hobby plan caps deployments at 12 serverless functions.
+// This file handles all visualizer-related read-only catalogue endpoints:
+//   GET /api/colours              — full colour list
+//   GET /api/colours?popular=1    — top 5 colours (last 30 days)
+//   GET /api/colours?type=rooms   — rooms for the visualizer
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const sql = neon(process.env.DATABASE_URL!);
 
-  // GET /api/colours?popular=1 — top colour ids from the last 30 days of
-  // cart_events (an add-to-cart counts 3x a swatch click). Folded in here
-  // rather than a separate function: Hobby plan caps deployments at 12 fns.
+  // --- Rooms (visualizer backgrounds) ---
+  if (req.query.type === "rooms") {
+    const rows = await sql`
+      SELECT id, name, photo_url AS "photo", wall_mask AS "wallMask"
+      FROM rooms
+      ORDER BY sort_order
+    `;
+    res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate");
+    return res.json(rows);
+  }
+
+  // --- Popular colour IDs (last 30 days) ---
   if (req.query.popular) {
     const rows = await sql`
       SELECT colour_id,
@@ -20,14 +35,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       LIMIT 5
     `;
     res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate=86400");
-    return res.json(rows.map(r => r.colour_id));
+    return res.json(rows.map((r) => r.colour_id));
   }
 
+  // --- Full colour list ---
   const rows = await sql`
     SELECT id, code, name, hex, family
     FROM colours
     ORDER BY family, name
   `;
   res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate");
-  res.json(rows);
+  return res.json(rows);
 }

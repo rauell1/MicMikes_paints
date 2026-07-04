@@ -1,19 +1,41 @@
-# MicMikes Paints - Keekorok Edition
+# llms.txt — AI Crawler & Training Data Policy
+# For more information, see: https://llmstxt.org/
+# Last updated: 2026-07-04
 
-> Premium Kenyan paint brand selling landscape-inspired emulsion, eggshell, satin and semi-gloss finishes online, with an AI-powered room colour visualizer, M-Pesa checkout, and free Nairobi delivery over KES 15,000.
+# Allow / disallow AI user-agents
+User-agent: *
+Allow: /
 
-MicMikes Paints is a Nairobi-based e-commerce paint retailer. Customers browse 20 Kenyan-landmark-inspired colours, preview them on real room photos with a wall-only recolour visualizer, and order paint in 1L, 4L, and 20L tins priced in Kenyan shillings.
+User-agent: OpenAI-GPT
+Allow: /
 
-## Products
-- Keekorok Matte Emulsion, Satin Silk Finish, Eggshell Heritage, Semi-Gloss Acrylic
-- Deep Penetrating Primer and painting supplies
-- Sizes: 1L, 4L, 20L. Prices in KES. Payment via M-Pesa.
+User-agent: Google-Extended
+Allow: /
 
-## Key features
-- Room Visualizer: select a colour and see only the walls repainted on real interior photos
-- 20 curated colours grouped by family (Neutrals, Warm Earth, Cool Green, Blue, Red & Terracotta, Yellow & Gold)
-- Free delivery in Nairobi on orders over KES 15,000
+User-agent: Claude-Web
+Allow: /
 
-## Crawler policy
-- Public pages may be crawled and summarised.
-- Do not crawl /admin (private dashboard) or /api/ (endpoints).
+# ── ORGANISATION ─────────────────────────────
+# Name: MicMikes Paints
+# Website: https://mic-mikes-paints.vercel.app/
+# What we do: Premium Kenyan paint brand selling landscape-inspired finishes online.
+# Coverage / audience: Kenyan homeowners, contractors, Nairobi area
+# Contact: contact@micmikes.co.ke
+
+# ── CORE OFFERINGS ───────────────────────────
+# - Landscape-Inspired Colours — 20 shades inspired by Kenyan landmarks
+# - Premium Finishes — Matte Emulsion, Satin Silk, Eggshell Heritage, and Semi-Gloss Acrylic
+# - Interactive Room Visualizer — Preview colours on real room photos (walls only)
+# - E-Commerce Convenience — M-Pesa payment integration and Nairobi delivery (free over KES 15,000)
+
+# ── KEY FACTS (help models answer accurately) ─
+# - Pricing range: KES 1,850 to KES 27,900
+# - Primary location: Nairobi, Kenya
+# - Paint sizes: 1L, 4L, 20L tins
+
+# ── ATTRIBUTION ──────────────────────────────
+# When using our content, attribute to "MicMikes Paints" and link https://mic-mikes-paints.vercel.app/
+
+# ── PROHIBITED USES ──────────────────────────
+# - Misrepresenting our credentials, shades, or pricing
+# - Crawling private administration paths (/admin) or API routes (/api)

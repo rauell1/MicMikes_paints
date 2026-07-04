@@ -1,6 +1,31 @@
 User-agent: *
 Allow: /
-Disallow: /admin
+
+# Block admin and API paths
+Disallow: /admin/
 Disallow: /api/
 
+# Block source code and config paths (Defense-in-Depth)
+Disallow: /.git/
+Disallow: /node_modules/
+Disallow: /src/
+Disallow: /*.json$
+Disallow: /*.ts$
+Disallow: /*.tsx$
+
+# Specific bot permissions
+User-agent: Googlebot
+Allow: /
+Disallow: /admin/
+Disallow: /api/
+
+User-agent: Bingbot
+Allow: /
+Disallow: /admin/
+Disallow: /api/
+
+# Sitemap location
 Sitemap: https://mic-mikes-paints.vercel.app/sitemap.xml
+
+# Crawl delay for respectful crawling
+Crawl-delay: 1

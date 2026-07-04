@@ -46,16 +46,31 @@ function generatePassword(shortCode: string, passKey: string, timestamp: string)
   return Buffer.from(`${shortCode}${passKey}${timestamp}`).toString("base64");
 }
 
+/** Wraps fetch with an AbortController timeout (default 8 s). */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs = 8000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchAccessToken(): Promise<string> {
   const isProd = process.env.MPESA_ENVIRONMENT === "production";
   const base = isProd ? "https://api.safaricom.co.ke" : "https://sandbox.safaricom.co.ke";
   const credentials = Buffer.from(
     `${process.env.MPESA_CONSUMER_KEY}:${process.env.MPESA_CONSUMER_SECRET}`
   ).toString("base64");
-  const res = await fetch(`${base}/oauth/v1/generate?grant_type=client_credentials`, {
-    method: "GET",
-    headers: { Authorization: `Basic ${credentials}` },
-  });
+  const res = await fetchWithTimeout(
+    `${base}/oauth/v1/generate?grant_type=client_credentials`,
+    { method: "GET", headers: { Authorization: `Basic ${credentials}` } }
+  );
   if (!res.ok) throw new Error(`M-Pesa OAuth failed (${res.status}): ${await res.text()}`);
   const data = (await res.json()) as { access_token: string };
   return data.access_token;
@@ -64,9 +79,21 @@ async function fetchAccessToken(): Promise<string> {
 function resultCodeToStatus(code: number): string {
   switch (code) {
     case 0:    return "SUCCESS";
+    // User-initiated cancellations
     case 1032: return "CANCELLED";
+    // Timeouts
     case 1037: return "TIMEOUT";
+    case 1001: return "TIMEOUT";
+    // Expired request
     case 1019: return "EXPIRED";
+    // Insufficient balance — map to distinct status for UX messaging
+    case 1:    return "INSUFFICIENT_FUNDS";
+    // Daily/weekly limit exceeded
+    case 17:   return "LIMIT_EXCEEDED";
+    // Wrong PIN / too many PIN attempts
+    case 1006: return "WRONG_PIN";
+    // System internal error on Safaricom side
+    case 1025: return "SAFARICOM_ERROR";
     default:   return "FAILED";
   }
 }
@@ -111,16 +138,25 @@ async function initiate(req: VercelRequest, res: VercelResponse) {
   const timestamp = getEATTimestamp();
   const password  = generatePassword(shortCode, passKey, timestamp);
 
+  // In sandbox/staging, require an explicit callback URL so we don't accidentally
+  // route Safaricom callbacks to the production server.
+  const callbackUrl = process.env.MPESA_CALLBACK_URL;
+  if (!callbackUrl) {
+    if (!isProd) {
+      console.error("[mpesa/initiate] MPESA_CALLBACK_URL must be set in non-production environments");
+      return res.status(503).json({ error: "Payment service not configured (missing callback URL)" });
+    }
+    // Production fallback — safe because there is only one prod deployment.
+  }
+  const resolvedCallbackUrl =
+    callbackUrl ?? "https://mic-mikes-paints.vercel.app/api/mpesa?action=callback";
+
   let accessToken: string;
   try { accessToken = await fetchAccessToken(); }
   catch (err) {
     console.error("[mpesa/initiate] OAuth error:", err);
     return res.status(502).json({ error: "Could not reach M-Pesa. Please try again." });
   }
-
-  const callbackUrl =
-    process.env.MPESA_CALLBACK_URL ??
-    `https://mic-mikes-paints.vercel.app/api/mpesa?action=callback`;
 
   const stkBody = {
     BusinessShortCode: shortCode,
@@ -131,16 +167,25 @@ async function initiate(req: VercelRequest, res: VercelResponse) {
     PartyA: normalisedPhone,
     PartyB: shortCode,
     PhoneNumber: normalisedPhone,
-    CallBackURL: callbackUrl,
+    CallBackURL: resolvedCallbackUrl,
     AccountReference: `MicMikes-${String(orderId).slice(-6).toUpperCase()}`,
     TransactionDesc: "Paint order payment",
   };
 
-  const stkRes = await fetch(`${base}/mpesa/stkpush/v1/processrequest`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-    body: JSON.stringify(stkBody),
-  });
+  let stkRes: Response;
+  try {
+    stkRes = await fetchWithTimeout(
+      `${base}/mpesa/stkpush/v1/processrequest`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify(stkBody),
+      }
+    );
+  } catch (err) {
+    console.error("[mpesa/initiate] STK Push fetch error (timeout?):", err);
+    return res.status(502).json({ error: "M-Pesa did not respond in time. Please try again." });
+  }
 
   const stkData = (await stkRes.json()) as {
     ResponseCode?: string; ResponseDescription?: string;

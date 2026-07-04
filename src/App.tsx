@@ -437,7 +437,7 @@ export default function App() {
         .sheet-panel{ animation: sheet-in .24s cubic-bezier(.22,1,.36,1); }
         .fade{ animation: fade-in .18s ease-out; }
         @keyframes pgIn { from{ opacity:0; transform:translateY(10px); } to{ opacity:1; transform:translateY(0); } }
-        @media (max-width:1023px){ .pg-enter{ animation: pgIn .26s cubic-bezier(.22,1,.36,1); } }
+        @media (max-width:1023px){ .pg-enter{ display:block; animation: pgIn .26s cubic-bezier(.22,1,.36,1); } }
         @keyframes shimmer { from{ background-position:200% 0; } to{ background-position:-200% 0; } }
       `}</style>
 
@@ -496,7 +496,7 @@ export default function App() {
       <main className="flex-1" style={{ paddingBottom: "calc(72px + env(safe-area-inset-bottom, 0px))" }}>
 
         {/* 3. Hero */}
-        <section id="home" className={`relative ${activePage === "home" ? "pg-enter" : "hidden lg:block"}`}>
+        <section id="home" className={`relative ${activePage === "home" ? "block pg-enter" : "hidden lg:block"}`}>
           <div className="max-w-7xl mx-auto px-4 sm:px-8 pt-10 sm:pt-16 pb-10 lg:pb-16">
             <div className="grid lg:grid-cols-12 gap-8 lg:gap-10 items-center">
               <div className="lg:col-span-6">
@@ -522,7 +522,7 @@ export default function App() {
                 <div className="mm-card rounded-[28px] overflow-hidden mm-shadow">
                   <div className="relative">
                     <img src="https://images.pexels.com/photos/1571460/pexels-photo-1571460.jpeg?auto=compress&cs=tinysrgb&w=1400" alt="Keekorok living room" className="w-full h-[340px] sm:h-[430px] object-cover" loading="eager" />
-                    <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(43,43,46,0.08) 0%, rgba(43,43,46,0.22) 100%)" }}/>
+                    <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(43,43,46,0.08) 0%, rgba(43,43,46,0.22) 100%)"}}/> 
                     <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between gap-3">
                       <div className="px-[14px] py-[9px] rounded-[14px] bg-white/95 text-[13px] font-[600]">Indian Ocean • Satin</div>
                       <div className="px-[12px] py-[8px] rounded-full text-[11px] font-mono2 bg-[#2B2B2E] text-[#F8F4EF]">Keekorok</div>
@@ -541,234 +541,256 @@ export default function App() {
         </section>
 
         {/* 4. Colour Explorer */}
-        <section id="colours" className={`py-12 sm:py-16 ${activePage === "colours" ? "pg-enter" : "hidden lg:block"}`}>
+        <section id="colours" className={`py-12 sm:py-16 ${activePage === "colours" ? "block pg-enter" : "hidden lg:block"}`}>
           <div className="max-w-7xl mx-auto px-4 sm:px-8">
             <div className="max-w-[760px] mb-6">
               <h2 className="font-display text-[30px] sm:text-[36px]">Colour Explorer</h2>
               <p className="mm-muted mt-2">20 Kenyan-inspired Keekorok tones. Tap any swatch — it loads instantly in the visualizer.</p>
             </div>
-            <div className="flex flex-wrap gap-[9px] mb-5" role="tablist" aria-label="Colour family">
+            <div className="flex flex-wrap gap-[9px] mb-5" role="tablist" aria-label="Colour families">
               {ALL_FAMILIES.map(f => (
-                <button key={f} role="tab" aria-selected={familyFilter === f} onClick={() => setFamilyFilter(f as ColourFamily | "All")} className={`chip ${familyFilter === f ? "active" : ""}`}>{f}</button>
+                <button key={f} role="tab" aria-selected={familyFilter === f} onClick={() => setFamilyFilter(f)}
+                  className={`chip ${familyFilter === f ? "active" : ""}`}>{f}</button>
               ))}
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-[14px] sm:gap-4">
-              {dataLoading ? Array.from({ length: 10 }).map((_, i) => (
-                <div key={i} className="mm-card rounded-[18px] overflow-hidden">
-                  <div className="h-[108px] sm:h-[120px]" style={{ background: "linear-gradient(90deg,#ebe2d2 25%,#f5ede0 50%,#ebe2d2 75%)", backgroundSize: "200% 100%", animation: "shimmer 1.4s infinite" }} />
-                  <div className="p-[12px] space-y-2"><div className="h-3 rounded-full w-3/4" style={{ background: "#ebe2d2" }} /><div className="h-2 rounded-full w-1/2" style={{ background: "#ebe2d2" }} /></div>
-                </div>
-              )) : filteredColours.map(c => (
-                <button key={c.id} onClick={() => { setVizColourId(c.id); setShopColourId(c.id); showToast(`${c.name} selected`); }}
-                  className="mm-card rounded-[18px] overflow-hidden text-left hover:mm-shadow transition-shadow focus:outline-none focus:ring-[3px] focus:ring-[#4FB9B055]"
-                  aria-label={`${c.name} ${c.hex}`}>
-                  <div className="h-[108px] sm:h-[120px]" style={{ backgroundColor: c.hex }} />
-                  <div className="p-[12px]">
-                    <div className="font-[600] text-[14px] leading-tight">{c.name}</div>
-                    <div className="flex items-center justify-between mt-[6px] text-[11.5px]">
-                      <span className="mm-muted">{c.family}</span>
-                      <span className="font-mono2">{c.hex}</span>
-                    </div>
-                  </div>
+            <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-3">
+              {filteredColours.map(c => (
+                <button key={c.id} onClick={() => { setVizColourId(c.id); navigate("visualizer"); }}
+                  title={c.name} aria-label={`${c.name} — click to visualize`}
+                  className="flex flex-col items-center gap-[6px] group">
+                  <div className={`swatch ${vizColour?.id === c.id ? "active" : ""}`} style={{ backgroundColor: c.hex }} />
+                  <span className="text-[10.5px] text-center leading-tight mm-muted group-hover:text-[#2B2B2E] transition-colors line-clamp-2">{c.name}</span>
                 </button>
               ))}
             </div>
+            {popularIds.length > 0 && (
+              <div className="mt-8 pt-6 border-t" style={{ borderColor: "#ebe2d2" }}>
+                <div className="text-[12px] font-[600] mm-muted mb-3 uppercase tracking-wider">Most Popular This Week</div>
+                <div className="flex gap-3 flex-wrap">
+                  {popularIds.map(id => {
+                    const c = colours.find(x => x.id === id);
+                    if (!c) return null;
+                    return (
+                      <button key={c.id} onClick={() => { setVizColourId(c.id); navigate("visualizer"); }}
+                        className="flex items-center gap-2 px-3 py-[8px] rounded-full border bg-white text-[13px] font-[500]"
+                        style={{ borderColor: "#e2d3b7" }}>
+                        <span className="w-4 h-4 rounded-full border border-[#ddd]" style={{ backgroundColor: c.hex }} />
+                        {c.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </section>
 
-        {/* 5. Room Visualizer */}
-        <section id="visualizer" className={`py-12 sm:py-16 ${activePage === "visualizer" ? "pg-enter" : "hidden lg:block"}`} style={{ backgroundColor: "#2B2B2E", color: "#F8F4EF" }}>
+        {/* 5. Visualizer */}
+        <section id="visualizer" className={`py-12 sm:py-16 border-t ${activePage === "visualizer" ? "block pg-enter" : "hidden lg:block"}`} style={{ borderColor: "#ebe2d2" }}>
           <div className="max-w-7xl mx-auto px-4 sm:px-8">
-            <div className="flex flex-wrap items-end justify-between gap-3 mb-6">
-              <div>
-                <h2 className="font-display text-[30px] sm:text-[36px]">Room Visualizer</h2>
-                <p className="mt-2" style={{ color: "#d5cfc3" }}>Pick a room, pick Keekorok — before / after, matte / satin / gloss.</p>
-              </div>
-              <div className="text-[11px] px-3 py-[6px] rounded-full" style={{ background: "#3b3b3d", color: "#e9dcc7" }}>← → keys switch colours</div>
+            <div className="max-w-[760px] mb-6">
+              <h2 className="font-display text-[30px] sm:text-[36px]">Room Visualizer</h2>
+              <p className="mm-muted mt-2">See your chosen colour in a real room before you buy. Use ← → keys to cycle shades.</p>
             </div>
-            <div className="grid lg:grid-cols-12 gap-6">
-              <div className="lg:col-span-8">
-                <div className="rounded-[26px] overflow-hidden mm-shadow" style={{ background: "#17171a" }}>
-                  {vizRoom && vizColour
-                    ? <VisualizerCanvas room={vizRoom} colour={vizColour} finish={vizFinish} />
-                    : <div className="h-[380px] flex items-center justify-center text-[#888]">Loading rooms…</div>
-                  }
+            {vizColour && vizRoom ? (
+              <div className="grid lg:grid-cols-12 gap-6 lg:gap-8">
+                <div className="lg:col-span-8">
+                  <div className="mm-card rounded-[22px] overflow-hidden mm-shadow">
+                    <VisualizerCanvas room={vizRoom} colour={vizColour} finish={vizFinish} />
+                    <div className="px-4 py-3 flex gap-2 overflow-x-auto">
+                      {rooms.map((r, i) => (
+                        <button key={r.id} onClick={() => setVizRoomIdx(i)}
+                          className={`flex items-center gap-2 flex-shrink-0 px-3 py-[7px] rounded-full text-[12.5px] font-[500] border transition ${vizRoomIdx === i ? "border-[#2B2B2E] bg-[#2B2B2E] text-[#F8F4EF]" : "border-[#e2d3b7] bg-white"}`}>
+                          <PaintedThumb room={r} colourId={vizColourId} />
+                          {r.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div className="lg:col-span-4">
-                <div className="rounded-[22px] p-5 mm-shadow" style={{ background: "#202023", border: "1px solid #3a3a3d" }}>
-                  <div className="text-[12px] font-[600] mb-[10px]" style={{ color: "#d5cfc3" }}>Room</div>
-                  <div className="grid gap-2 mb-5">
-                    {rooms.map((r, idx) => (
-                      <button key={r.id} onClick={() => setVizRoomIdx(idx)} className="text-left flex items-center gap-3 px-3 py-[10px] rounded-[14px] border transition"
-                        style={{ background: vizRoomIdx === idx ? "#2f2f33" : "transparent", borderColor: vizRoomIdx === idx ? "#4FB9B0" : "#3a3a3d", color: "#F8F4EF" }}>
-                        <PaintedThumb room={r} colourId={vizColour?.id ?? null} />
-                        <div><div className="font-[600] text-[14px]">{r.name}</div><div className="text-[11px]" style={{ color: "#bdb7a9" }}>Kenyan interior</div></div>
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex items-baseline justify-between mb-[10px]">
-                    <div className="text-[12px] font-[600]" style={{ color: "#d5cfc3" }}>Colour — {vizColour?.name ?? "—"}</div>
-                    <div className="text-[10.5px] font-mono2" style={{ color: "#8f897d" }}>{vizColour?.hex}</div>
-                  </div>
-                  <div className="mb-4 space-y-[10px]">
-                    {FAMILIES.map(fam => {
-                      const famColours = colours.filter(c => c.family === fam);
-                      if (!famColours.length) return null;
+                <div className="lg:col-span-4 space-y-4">
+                  <div className="mm-card rounded-[20px] p-5">
+                    <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-3">Selected Colour</div>
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-12 h-12 rounded-full border-4 border-white mm-shadow" style={{ backgroundColor: vizColour.hex }} />
+                      <div>
+                        <div className="font-[600] text-[15px]">{vizColour.name}</div>
+                        <div className="font-mono2 text-[12px] mm-muted">{vizColour.hex}</div>
+                        <div className="text-[11.5px] mm-muted">{vizColour.family}</div>
+                      </div>
+                    </div>
+                    <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-2">Finish</div>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {(["Matte","Eggshell","Satin","Semi-Gloss"] as Finish[]).map(f => (
+                        <button key={f} onClick={() => setVizFinish(f)}
+                          className={`chip text-[12px] ${vizFinish === f ? "active" : ""}`}>{f}</button>
+                      ))}
+                    </div>
+                    <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-2">Size</div>
+                    <div className="flex gap-2 mb-5">
+                      {(["1L","4L","20L"] as Size[]).map(s => (
+                        <button key={s} onClick={() => setVizSize(s)}
+                          className={`chip ${vizSize === s ? "active" : ""}`}>{s}</button>
+                      ))}
+                    </div>
+                    {products.length > 0 && (() => {
+                      const prod = products.find(p => p.category === "Paint") ?? products[0];
                       return (
-                        <div key={fam}>
-                          <div className="text-[10px] uppercase tracking-[0.08em] mb-[5px]" style={{ color: "#8f897d" }}>{fam}</div>
-                          <div className="grid grid-cols-8 lg:grid-cols-7 gap-[8px]">
-                            {famColours.map(c => (
-                              <button key={c.id} onClick={() => { setVizColourId(c.id); trackCartEvent({ eventType: "swatch_click", colourId: c.id }); }}
-                                className="relative w-full aspect-square rounded-[10px] border-[2px] transition"
-                                style={{ backgroundColor: c.hex, borderColor: vizColour?.id === c.id ? "#E9A23B" : "transparent", transform: vizColour?.id === c.id ? "scale(1.06)" : "none" }}
-                                aria-label={c.name} title={c.name}>
-                                {popularIds.includes(c.id) && (
-                                  <span className="absolute -top-[3px] -right-[3px] w-[11px] h-[11px] rounded-full text-[7px] leading-[11px] text-center"
-                                    style={{ background: "#E9A23B", color: "#2B1a05" }} title="Popular this week">★</span>
-                                )}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
+                        <button onClick={() => addItem({ productId: prod.id, productName: prod.name, productSlug: prod.slug, colourId: vizColour.id, colourName: vizColour.name, colourHex: vizColour.hex, size: vizSize, finish: vizFinish, unitKes: prod.baseKes[vizSize] })}
+                          className="btn btn-primary w-full py-[13px] text-[14px]">
+                          Add to Cart — {kes(prod.baseKes[vizSize])}
+                        </button>
                       );
-                    })}
+                    })()}
                   </div>
-                  <div className="text-[12px] font-[600] mb-[8px]" style={{ color: "#d5cfc3" }}>Finish</div>
-                  <div className="flex gap-2 mb-[6px]">
-                    {(["Matte","Satin","Semi-Gloss"] as Finish[]).map(f => (
-                      <button key={f} onClick={() => setVizFinish(f)} className="flex-1 py-[9px] rounded-[12px] text-[12.5px] font-[600] border"
-                        style={{ backgroundColor: vizFinish === f ? "#4FB9B0" : "transparent", color: vizFinish === f ? "#0b2c29" : "#F8F4EF", borderColor: vizFinish === f ? "#4FB9B0" : "#444448" }}>{f}</button>
-                    ))}
+                  <div className="mm-card rounded-[20px] p-5">
+                    <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-3">Browse Colours</div>
+                    <div className="flex flex-wrap gap-[8px]">
+                      {colours.slice(0, 20).map(c => (
+                        <button key={c.id} onClick={() => setVizColourId(c.id)} title={c.name}
+                          className={`swatch w-[36px] h-[36px] ${vizColour.id === c.id ? "active" : ""}`}
+                          style={{ backgroundColor: c.hex }} />
+                      ))}
+                    </div>
                   </div>
-                  <div className="text-[11px] mb-5" style={{ color: "#9d968a" }}>
-                    {vizFinish === "Matte" ? "Soft, velvety — hides wall imperfections" : vizFinish === "Satin" ? "Silky low sheen — easy to clean, most popular" : "Durable gloss — kitchens, doors & high-touch walls"}
-                  </div>
-                  <div className="text-[12px] font-[600] mb-[8px]" style={{ color: "#d5cfc3" }}>Size</div>
-                  <div className="flex gap-2 mb-5">
-                    {(["1L","4L","20L"] as Size[]).map(s => (
-                      <button key={s} onClick={() => setVizSize(s)} className="flex-1 py-[8px] rounded-[12px] text-[12px] font-[600] border"
-                        style={{ backgroundColor: vizSize === s ? "#2f2f33" : "transparent", color: "#F8F4EF", borderColor: vizSize === s ? "#E9A23B" : "#444448" }}>
-                        <div>{s}</div>
-                        <div className="text-[10px] font-[400]" style={{ color: "#bdb7a9" }}>{products[0] ? kes(products[0].baseKes[s]) : "—"}</div>
-                      </button>
-                    ))}
-                  </div>
-                  <button disabled={!vizColour || !products[0]}
-                    onClick={() => { const p = products[0]; if (!p || !vizColour) return; addItem({ productId: p.id, productName: p.name, productSlug: p.slug, colourId: vizColour.id, colourName: vizColour.name, colourHex: vizColour.hex, size: vizSize, finish: vizFinish, unitKes: p.baseKes[vizSize] }); }}
-                    className="btn w-full py-[13px] text-[14.5px] disabled:opacity-40" style={{ background: "#E9A23B", color: "#2B1a05" }}>
-                    Add {vizColour?.name ?? "colour"} · {vizSize} — {products[0] ? kes(products[0].baseKes[vizSize]) : ""}
-                  </button>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="text-center py-16 mm-muted">
+                {dataLoading ? "Loading visualizer…" : "No colours available yet."}
+              </div>
+            )}
           </div>
         </section>
 
         {/* 6. Shop */}
-        <section id="shop" className={`py-12 sm:py-16 ${activePage === "shop" ? "pg-enter" : "hidden lg:block"}`}>
+        <section id="shop" className={`py-12 sm:py-16 border-t ${activePage === "shop" ? "block pg-enter" : "hidden lg:block"}`} style={{ borderColor: "#ebe2d2" }}>
           <div className="max-w-7xl mx-auto px-4 sm:px-8">
-            <div className="flex items-end justify-between gap-3 mb-6">
-              <div>
-                <h2 className="font-display text-[30px] sm:text-[36px]">Keekorok Shop</h2>
-                <p className="mm-muted mt-2">Paints, primer &amp; supplies · M-Pesa checkout · priced in KES</p>
-              </div>
+            <div className="max-w-[760px] mb-6">
+              <h2 className="font-display text-[30px] sm:text-[36px]">Shop</h2>
+              <p className="mm-muted mt-2">Premium Keekorok paints, primers &amp; supplies. M-Pesa checkout. Next-day Nairobi delivery.</p>
             </div>
-            {/* Colour picker */}
-            {colours.length > 0 && (
-              <div className="mb-6 p-4 sm:p-5 mm-card rounded-[20px]">
-                <div className="text-[13px] font-[600] mb-3">Choose your colour</div>
-                <div className="flex flex-wrap gap-[10px]">
-                  {colours.map(c => (
-                    <button key={c.id} onClick={() => setShopColourId(c.id)} title={c.name} aria-label={c.name}
-                      className={`swatch ${shopColour?.id === c.id ? "active" : ""}`} style={{ backgroundColor: c.hex }} />
+
+            {/* Colour selector for shop */}
+            <div className="mm-card rounded-[20px] p-5 mb-6">
+              <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-3">Choose Your Colour</div>
+              <div className="flex flex-wrap gap-[10px] mb-4">
+                {colours.slice(0, 20).map(c => (
+                  <button key={c.id} onClick={() => setShopColourId(c.id)} title={c.name}
+                    className={`swatch ${shopColour?.id === c.id ? "active" : ""}`}
+                    style={{ backgroundColor: c.hex }} />
+                ))}
+              </div>
+              {shopColour && (
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full border-2 border-white mm-shadow" style={{ backgroundColor: shopColour.hex }} />
+                  <span className="font-[600] text-[14px]">{shopColour.name}</span>
+                  <span className="font-mono2 text-[12px] mm-muted">{shopColour.hex}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Size + Finish selectors */}
+            <div className="flex flex-wrap gap-4 mb-6">
+              <div>
+                <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-2">Size</div>
+                <div className="flex gap-2">
+                  {(["1L","4L","20L"] as Size[]).map(s => (
+                    <button key={s} onClick={() => setShopSize(s)} className={`chip ${shopSize === s ? "active" : ""}`}>{s}</button>
                   ))}
                 </div>
-                {shopColour && (
-                  <div className="mt-3 text-[13px]">
-                    <span className="font-[600]">{shopColour.name}</span>
-                    <span className="mm-muted ml-2">{shopColour.family}</span>
-                    <span className="font-mono2 ml-2 text-[12px]">{shopColour.hex}</span>
-                  </div>
-                )}
               </div>
-            )}
-            {/* Products grid */}
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {dataLoading ? Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="mm-card rounded-[20px] overflow-hidden">
-                  <div className="h-[200px]" style={{ background: "linear-gradient(90deg,#ebe2d2 25%,#f5ede0 50%,#ebe2d2 75%)", backgroundSize: "200% 100%", animation: "shimmer 1.4s infinite" }} />
-                  <div className="p-5 space-y-3"><div className="h-4 rounded-full w-2/3" style={{ background: "#ebe2d2" }} /><div className="h-3 rounded-full w-full" style={{ background: "#ebe2d2" }} /><div className="h-3 rounded-full w-3/4" style={{ background: "#ebe2d2" }} /></div>
+              <div>
+                <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-2">Finish</div>
+                <div className="flex flex-wrap gap-2">
+                  {(["Matte","Eggshell","Satin","Semi-Gloss"] as Finish[]).map(f => (
+                    <button key={f} onClick={() => setShopFinish(f)} className={`chip ${shopFinish === f ? "active" : ""}`}>{f}</button>
+                  ))}
                 </div>
-              )) : products.map(p => (
-                <div key={p.id} className="mm-card rounded-[20px] overflow-hidden mm-shadow flex flex-col">
-                  <div className="relative">
-                    <img src={p.image} alt={p.name} className="w-full h-[200px] object-cover" loading="lazy" />
-                    <div className="absolute top-3 left-3">
-                      <span className="text-[11px] font-[700] px-[10px] py-[5px] rounded-full" style={{ background: "#2B2B2E", color: "#F8F4EF" }}>{p.category}</span>
+              </div>
+            </div>
+
+            {dataLoading ? (
+              <div className="text-center py-12 mm-muted">Loading products…</div>
+            ) : products.length === 0 ? (
+              <div className="text-center py-12 mm-muted">No products available yet.</div>
+            ) : (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+                {products.map(prod => (
+                  <div key={prod.id} className="mm-card rounded-[22px] overflow-hidden mm-shadow flex flex-col">
+                    <div className="relative h-[200px] sm:h-[220px] bg-[#f0ebe1]">
+                      {prod.image ? (
+                        <img src={prod.image} alt={prod.name} className="w-full h-full object-cover" loading="lazy" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <div className="w-16 h-16 rounded-full" style={{ backgroundColor: shopColour?.hex ?? "#B84A32" }} />
+                        </div>
+                      )}
+                      <div className="absolute top-3 left-3">
+                        <span className="text-[11px] font-[600] px-[10px] py-[5px] rounded-full bg-white/90"
+                          style={{ color: prod.category === "Paint" ? "#B84A32" : prod.category === "Primer" ? "#4FB9B0" : "#2B2B2E" }}>
+                          {prod.category}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="p-4 sm:p-5 flex flex-col flex-1">
+                      <div className="font-display text-[19px]">{prod.name}</div>
+                      <p className="text-[13px] mm-muted mt-1 flex-1">{prod.blurb}</p>
+                      <div className="mt-4 flex items-center justify-between gap-2">
+                        <div>
+                          <div className="font-[700] text-[18px]">{kes(prod.baseKes[shopSize])}</div>
+                          <div className="text-[11.5px] mm-muted">{shopSize} · {shopFinish}</div>
+                        </div>
+                        <button
+                          onClick={() => shopColour && addItem({ productId: prod.id, productName: prod.name, productSlug: prod.slug, colourId: shopColour.id, colourName: shopColour.name, colourHex: shopColour.hex, size: shopSize, finish: shopFinish, unitKes: prod.baseKes[shopSize] })}
+                          disabled={!shopColour}
+                          className="btn btn-primary px-[18px] py-[11px] text-[13.5px] disabled:opacity-50">
+                          Add to Cart
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  <div className="p-5 flex flex-col flex-1">
-                    <div className="font-display text-[20px] mb-1">{p.name}</div>
-                    <div className="text-[13.5px] mm-muted mb-4 flex-1">{p.blurb}</div>
-                    {p.category === "Paint" && (
-                      <>
-                        <div className="flex gap-2 mb-3">
-                          {(["Matte","Eggshell","Satin","Semi-Gloss"] as Finish[]).map(f => (
-                            <button key={f} onClick={() => setShopFinish(f)} className="flex-1 py-[7px] rounded-[10px] text-[11.5px] font-[600] border transition"
-                              style={{ backgroundColor: shopFinish === f ? "#2B2B2E" : "#fff", color: shopFinish === f ? "#F8F4EF" : "#2B2B2E", borderColor: shopFinish === f ? "#2B2B2E" : "#e2d3b7" }}>{f}</button>
-                          ))}
-                        </div>
-                        <div className="flex gap-2 mb-4">
-                          {(["1L","4L","20L"] as Size[]).map(s => (
-                            <button key={s} onClick={() => setShopSize(s)} className="flex-1 py-[8px] rounded-[10px] text-[12px] font-[600] border transition"
-                              style={{ backgroundColor: shopSize === s ? "#F8F4EF" : "#fff", borderColor: shopSize === s ? "#B84A32" : "#e2d3b7" }}>
-                              <div>{s}</div><div className="text-[11px] mm-muted">{kes(p.baseKes[s])}</div>
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                    <button onClick={() => addItem({ productId: p.id, productName: p.name, productSlug: p.slug, colourId: shopColour?.id ?? "default", colourName: shopColour?.name ?? "Standard", colourHex: shopColour?.hex ?? "#888", size: p.category === "Paint" ? shopSize : "1L", finish: p.category === "Paint" ? shopFinish : "Matte", unitKes: p.baseKes[p.category === "Paint" ? shopSize : "1L"] })}
-                      className="btn btn-primary w-full py-[12px] text-[14px]">
-                      Add to Cart — {kes(p.baseKes[p.category === "Paint" ? shopSize : "1L"])}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </section>
 
       </main>
 
       {/* 7. Mobile bottom nav */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 border-t flex" aria-label="Mobile navigation"
-        style={{ backgroundColor: "rgba(248,244,239,0.97)", backdropFilter: "blur(12px)", borderColor: "#e8dcc7", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
-        {[
-          { id: "home", label: "Home", icon: <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>, icon2: <polyline points="9 22 9 12 15 12 15 22"/> },
-          { id: "colours", label: "Colours", icon: <circle cx="12" cy="12" r="10"/>, icon2: <><circle cx="8" cy="10" r="1.5" fill="currentColor"/><circle cx="12" cy="7" r="1.5" fill="currentColor"/><circle cx="16" cy="10" r="1.5" fill="currentColor"/><circle cx="12" cy="15" r="1.5" fill="currentColor"/></> },
-          { id: "visualizer", label: "Visualize", icon: <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>, icon2: <><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></> },
-          { id: "shop", label: "Shop", icon: <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>, icon2: <><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></> },
-        ].map(({ id, label, icon, icon2 }) => (
-          <button key={id} onClick={() => navigate(id)} className="flex-1 flex flex-col items-center justify-center py-[10px] gap-[4px] transition-colors"
-            style={{ color: activePage === id ? "#B84A32" : "#9b9589" }} aria-current={activePage === id ? "page" : undefined}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              {icon}{icon2}
-            </svg>
-            <span className="text-[10.5px] font-[600]">{label}</span>
-            {activePage === id && <span className="absolute top-0 left-[50%] translate-x-[-50%] w-6 h-[2.5px] rounded-full" style={{ background: "#B84A32" }} />}
-          </button>
-        ))}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 border-t"
+        style={{ backgroundColor: "rgba(248,244,239,0.97)", backdropFilter: "blur(12px)", borderColor: "#e8dcc7", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+        aria-label="Mobile navigation">
+        <div className="flex items-stretch h-[64px]">
+          {[
+            { id: "home", label: "Home", icon: <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>, icon2: <polyline points="9 22 9 12 15 12 15 22"/> },
+            { id: "colours", label: "Colours", icon: <circle cx="12" cy="12" r="10"/>, icon2: <path d="M8.56 2.75c4.37 6.03 6.02 9.42 8.03 17.72m2.54-15.38c-3.72 4.35-8.94 5.66-16.88 5.85m19.5 1.9c-3.5-.93-6.63-.82-8.94 0-2.58.92-5.01 2.86-7.44 6.32"/> },
+            { id: "visualizer", label: "Visualize", icon: <rect x="3" y="3" width="18" height="18" rx="2"/>, icon2: <><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></> },
+            { id: "shop", label: "Shop", icon: <path d="M6 6h15l-1.5 9h-12z"/>, icon2: <><path d="M6 6l-2-3H2"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/></> },
+          ].map(({ id, label, icon, icon2 }) => {
+            const active = activePage === id;
+            return (
+              <button key={id} onClick={() => navigate(id)}
+                className="flex-1 flex flex-col items-center justify-center gap-[3px] transition-opacity"
+                style={{ color: active ? "#B84A32" : "#7b7468" }}
+                aria-current={active ? "page" : undefined}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? "2.2" : "1.7"} strokeLinecap="round" strokeLinejoin="round">
+                  {icon}{icon2}
+                </svg>
+                <span className="text-[10px] font-[600]">{label}</span>
+              </button>
+            );
+          })}
+        </div>
       </nav>
 
       {/* 8. Cart drawer */}
       {cartOpen && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/40 fade" onClick={() => setCartOpen(false)} />
-          <div className="relative w-full sm:max-w-[420px] h-full sheet-panel flex flex-col" style={{ background: "#F8F4EF" }}>
-            <div className="px-6 pt-6 pb-4 border-b flex items-center justify-between" style={{ borderColor: "#e8dcc7" }}>
+          <div className="relative w-full max-w-[420px] h-full bg-[#F8F4EF] sheet-panel flex flex-col shadow-2xl">
+            <div className="px-6 pt-6 pb-4 border-b flex items-center justify-between" style={{ borderColor: "#e7d9c3" }}>
               <div className="font-display text-[22px]">Your Cart</div>
               <button onClick={() => setCartOpen(false)} className="w-9 h-9 rounded-full bg-white border flex items-center justify-center" style={{ borderColor: "#e3d5bc" }} aria-label="Close cart">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -776,40 +798,51 @@ export default function App() {
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
               {cart.length === 0 ? (
-                <div className="text-center py-16 text-[14px] mm-muted">Your cart is empty.<br/>Browse colours or the shop to add items.</div>
-              ) : cart.map(item => {
-                const key = `${item.productId}|${item.colourId}|${item.size}|${item.finish}`;
-                return (
-                  <div key={key} className="mm-card rounded-[16px] p-4 flex gap-3">
-                    <div className="w-[44px] h-[44px] rounded-[10px] flex-shrink-0 border" style={{ backgroundColor: item.colourHex, borderColor: "#e2d3b7" }} />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-[600] text-[14px] truncate">{item.productName}</div>
-                      <div className="text-[12px] mm-muted">{item.colourName} · {item.size} · {item.finish}</div>
-                      <div className="flex items-center justify-between mt-2">
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => updateQty(key, item.quantity - 1)} className="w-7 h-7 rounded-full bg-white border flex items-center justify-center text-[16px] font-[600]" style={{ borderColor: "#e2d3b7" }} aria-label="Decrease quantity">−</button>
-                          <span className="text-[14px] font-[600] w-5 text-center">{item.quantity}</span>
-                          <button onClick={() => updateQty(key, item.quantity + 1)} className="w-7 h-7 rounded-full bg-white border flex items-center justify-center text-[16px] font-[600]" style={{ borderColor: "#e2d3b7" }} aria-label="Increase quantity">+</button>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-[700] text-[14px]">{kes(item.unitKes * item.quantity)}</span>
-                          <button onClick={() => removeLine(key)} className="text-[#B84A32] hover:opacity-70 transition-opacity" aria-label="Remove item">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-                          </button>
+                <div className="text-center py-16">
+                  <div className="text-4xl mb-3">🎨</div>
+                  <div className="font-display text-[20px] mb-1">Your cart is empty</div>
+                  <p className="mm-muted text-[14px]">Add colours and paints to get started.</p>
+                  <button onClick={() => { setCartOpen(false); navigate("colours"); }} className="btn btn-primary mt-5 px-6 py-[11px] text-[14px]">Browse Colours →</button>
+                </div>
+              ) : (
+                cart.map(item => {
+                  const key = `${item.productId}|${item.colourId}|${item.size}|${item.finish}`;
+                  return (
+                    <div key={key} className="mm-card rounded-[18px] p-4 flex gap-3">
+                      <div className="w-10 h-10 rounded-full flex-shrink-0 border-2 border-white mm-shadow" style={{ backgroundColor: item.colourHex }} />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-[600] text-[14px] truncate">{item.productName}</div>
+                        <div className="text-[12px] mm-muted truncate">{item.colourName} · {item.size} · {item.finish}</div>
+                        <div className="font-[700] text-[14px] mt-[2px]">{kes(item.unitKes * item.quantity)}</div>
+                      </div>
+                      <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                        <button onClick={() => removeLine(key)} className="text-[11px] mm-muted hover:text-red-500 transition-colors" aria-label="Remove">✕</button>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => item.quantity > 1 ? updateQty(key, item.quantity - 1) : removeLine(key)}
+                            className="w-7 h-7 rounded-full bg-white border flex items-center justify-center text-[15px]" style={{ borderColor: "#e2d3b7" }}>−</button>
+                          <span className="w-6 text-center text-[13px] font-[600]">{item.quantity}</span>
+                          <button onClick={() => updateQty(key, item.quantity + 1)}
+                            className="w-7 h-7 rounded-full bg-white border flex items-center justify-center text-[15px]" style={{ borderColor: "#e2d3b7" }}>+</button>
                         </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
             {cart.length > 0 && (
-              <div className="px-6 py-5 border-t space-y-3" style={{ borderColor: "#e8dcc7" }}>
-                <div className="flex justify-between text-[13px]"><span className="mm-muted">Subtotal</span><span className="font-[600]">{kes(subtotal)}</span></div>
-                <div className="flex justify-between text-[13px] mm-muted"><span>Delivery</span><span>{deliveryFee === 0 ? "Free" : kes(deliveryFee)}</span></div>
-                <div className="flex justify-between text-[16px] font-[700]"><span>Total</span><span>{kes(totalKes)}</span></div>
-                <button onClick={() => { setCartOpen(false); setCheckoutOpen(true); }} className="btn btn-primary w-full py-[14px] text-[15px]">
-                  Checkout · {kes(totalKes)}
+              <div className="px-6 py-5 border-t space-y-3" style={{ borderColor: "#e7d9c3" }}>
+                <div className="flex justify-between text-[13.5px]">
+                  <span className="mm-muted">Subtotal</span><span className="font-[600]">{kes(subtotal)}</span>
+                </div>
+                <div className="flex justify-between text-[13px] mm-muted">
+                  <span>Delivery</span><span>{deliveryFee === 0 ? "Free" : kes(deliveryFee)}</span>
+                </div>
+                <div className="flex justify-between font-[700] text-[17px] pt-1 border-t" style={{ borderColor: "#ebe2d2" }}>
+                  <span>Total</span><span>{kes(totalKes)}</span>
+                </div>
+                <button onClick={() => { setCartOpen(false); setCheckoutOpen(true); }} className="btn btn-dark w-full py-[14px] text-[15px]">
+                  Proceed to Checkout →
                 </button>
               </div>
             )}
@@ -817,37 +850,32 @@ export default function App() {
         </div>
       )}
 
-      {/* 9. Checkout dialog */}
+      {/* 9. Checkout */}
       {checkoutOpen && !orderSuccess && (
         <CheckoutDialog
           subtotal={subtotal} deliveryFee={deliveryFee} total={totalKes} cartCount={cartCount} cart={cart}
           onClose={() => setCheckoutOpen(false)}
-          onSuccess={(meta) => { setCart([]); setCheckoutOpen(false); setOrderSuccess(meta); }}
+          onSuccess={meta => { setOrderSuccess(meta); setCart([]); setCheckoutOpen(false); }}
         />
       )}
 
       {/* 10. Order success */}
       {orderSuccess && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 fade" onClick={() => setOrderSuccess(null)} />
-          <div className="relative w-full max-w-[440px] rounded-[24px] p-8 text-center fade" style={{ background: "#F8F4EF" }}>
-            <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4" style={{ background: "#e8f5e9" }}>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#2e7d32" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
-            </div>
-            <div className="font-display text-[28px] mb-2">Order placed!</div>
-            <p className="mm-muted text-[14px] mb-4">Thank you for your order. We'll confirm via SMS and deliver to your address.</p>
-            <div className="text-[12px] mm-muted mb-6">Invoice: <span className="font-mono2">{orderSuccess.invoice}</span></div>
-            <button onClick={() => setOrderSuccess(null)} className="btn btn-primary px-8 py-[12px] text-[15px]">Continue Shopping</button>
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/50 fade">
+          <div className="w-full max-w-[440px] rounded-[28px] p-8 text-center mm-shadow" style={{ background: "#F8F4EF" }}>
+            <div className="text-5xl mb-4">🎨</div>
+            <div className="font-display text-[26px] mb-2">Order Placed!</div>
+            <p className="mm-muted text-[14px] mb-4">Thank you! Your Keekorok paints are on their way. We'll call to confirm delivery.</p>
+            <div className="font-mono2 text-[12px] mm-muted mb-6">Invoice: {orderSuccess.invoice}</div>
+            <button onClick={() => setOrderSuccess(null)} className="btn btn-primary px-8 py-[13px] text-[15px]">Done</button>
           </div>
         </div>
       )}
 
       {/* 11. Toast */}
       {toast && (
-        <div className="fixed bottom-[90px] left-[50%] translate-x-[-50%] z-[70] px-5 py-[11px] rounded-[999px] text-[13.5px] font-[600] shadow-lg fade pointer-events-none whitespace-nowrap"
-          style={{ background: "#2B2B2E", color: "#F8F4EF" }}>
+        <div className="fixed bottom-[88px] left-1/2 -translate-x-1/2 z-[100] px-5 py-[11px] rounded-full text-[13.5px] font-[600] fade"
+          style={{ background: "#2B2B2E", color: "#F8F4EF", boxShadow: "0 8px 28px rgba(43,43,46,.25)", whiteSpace: "nowrap" }}>
           {toast}
         </div>
       )}

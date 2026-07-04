@@ -30,7 +30,6 @@
     "@types/pngjs": "^6.0.5",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
-    "@types/xss": "^1.0.4",
     "@vercel/node": "^5.8.22",
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.31.10",

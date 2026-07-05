@@ -239,6 +239,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600&family=Inter:wght@400;500;600;700&display=swap');
         @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes slideUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
         * { box-sizing: border-box; }
       `}</style>
 
@@ -288,7 +289,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
 
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-full text-white text-[13px] font-[600] shadow-lg"
-          style={{ background:"#2B2B2E" }}>
+          style={{ background:"#2B2B2E", animation:"slideUp 0.2s ease" }}>
           {toast}
         </div>
       )}
@@ -303,21 +304,28 @@ function DashboardTab({ showToast }: { showToast: (m:string) => void }) {
   const [data,    setData]    = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(new Date());
+  const [saleModal, setSaleModal] = useState<{ name: string; slug: string } | null>(null);
+  const [lowStockCount, setLowStockCount] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const d = await api("/api/admin/dashboard");
+      const [d, stockData] = await Promise.all([
+        api("/api/admin/dashboard"),
+        api("/api/admin/stock").catch(() => [] as StockEntry[]),
+      ]);
       setData(d);
       setLastRefresh(new Date());
+      const entries: StockEntry[] = stockData ?? [];
+      setLowStockCount(entries.filter(s => s.stock <= s.low_stock_threshold).length);
     } catch (e) { showToast(`Dashboard error: ${e}`); }
     finally { setLoading(false); }
   }, [showToast]);
 
   useEffect(() => {
     load();
-    timerRef.current = setInterval(load, 5 * 60 * 1000); // auto-refresh every 5 min
+    timerRef.current = setInterval(load, 5 * 60 * 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [load]);
 
@@ -426,7 +434,17 @@ function DashboardTab({ showToast }: { showToast: (m:string) => void }) {
           <p className="text-[28px] font-[700] mt-1" style={{ color: mpesaRate >= 80 ? "#16a34a" : "#d97706" }}>{mpesaRate}%</p>
           <p className="text-[11px] mt-0.5" style={{ color:"#9b9589" }}>{mpesa.success}/{mpesa.total} transactions</p>
         </div>
-        <div className="bg-white rounded-[16px] p-5" style={{ border:"1px solid #ebe2d2" }}>
+        {/* Pending KPI — shows low-stock badge if any variants below threshold */}
+        <div className="bg-white rounded-[16px] p-5 relative" style={{ border:"1px solid #ebe2d2" }}>
+          {lowStockCount > 0 && (
+            <span
+              className="absolute top-3 right-3 text-[10px] font-[700] px-2 py-0.5 rounded-full"
+              style={{ background:"#dc2626", color:"#fff" }}
+              title={`${lowStockCount} variant${lowStockCount > 1 ? "s" : ""} below stock threshold`}
+            >
+              {lowStockCount} low stock
+            </span>
+          )}
           <p className="text-[11px] font-[700] uppercase tracking-wide" style={{ color:"#9b9589" }}>Pending Orders</p>
           <p className="text-[28px] font-[700] mt-1" style={{ color: statusMap["pending"] > 0 ? "#d97706" : "#2B2B2E" }}>
             {statusMap["pending"] ?? 0}
@@ -503,7 +521,10 @@ function DashboardTab({ showToast }: { showToast: (m:string) => void }) {
                   <p className="text-[13px] font-[600] truncate">{p.name}</p>
                   <p className="text-[11px]" style={{ color:"#9b9589" }}>Last ordered: {fmt(p.last_ordered)}</p>
                 </div>
-                <span className="text-[11px] px-2 py-1 rounded-full" style={{ background:"#fff0ee", color:"#a43a25", fontWeight:600 }}>slow</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] px-2 py-1 rounded-full" style={{ background:"#fff0ee", color:"#a43a25", fontWeight:600 }}>slow</span>
+                  <Btn size="sm" variant="outline" onClick={() => setSaleModal({ name: p.name, slug: p.slug })}>🏷 Mark on Sale</Btn>
+                </div>
               </div>
             ))}
           </div>
@@ -531,7 +552,73 @@ function DashboardTab({ showToast }: { showToast: (m:string) => void }) {
           </div>
         </div>
       )}
+
+      {/* ── Mark on Sale Modal ── */}
+      {saleModal && (
+        <SaleModal
+          product={saleModal}
+          onClose={() => setSaleModal(null)}
+          onSaved={(pct) => { setSaleModal(null); showToast(`${saleModal.name} marked ${pct}% off`); }}
+          showToast={showToast}
+        />
+      )}
     </div>
+  );
+}
+
+/* ─── Mark on Sale modal ─── */
+function SaleModal({ product, onClose, onSaved, showToast }: {
+  product: { name: string; slug: string };
+  onClose: () => void;
+  onSaved: (pct: number) => void;
+  showToast: (m: string) => void;
+}) {
+  const [pct, setPct]     = useState(10);
+  const [saving, setSaving] = useState(false);
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pct <= 0 || pct >= 100) { showToast("Enter a discount between 1–99%"); return; }
+    setSaving(true);
+    try {
+      await api(`/api/admin/products/${product.slug}/sale`, {
+        method: "PATCH",
+        body: JSON.stringify({ discount_pct: pct }),
+      });
+      onSaved(pct);
+    } catch (err) { showToast(`${err}`); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <Modal title={`Mark on Sale — ${product.name}`} onClose={onClose}>
+      <form onSubmit={save} className="space-y-5">
+        <div className="rounded-[12px] p-4" style={{ background:"#f8f4ef" }}>
+          <p className="text-[12px]" style={{ color:"#6f6a62" }}>
+            This will apply a percentage discount to <strong>all variants</strong> of this product.
+            The original price is stored so you can reverse it later.
+          </p>
+        </div>
+        <Field label="Discount %" hint="e.g. 15 = 15% off all variant prices">
+          <input
+            className={inp}
+            type="number"
+            min={1} max={99}
+            value={pct}
+            onChange={e => setPct(Number(e.target.value))}
+          />
+        </Field>
+        {pct > 0 && pct < 100 && (
+          <p className="text-[12px] px-3 py-2 rounded-[8px]" style={{ background:"#f0fdf4", color:"#16a34a", fontWeight:600 }}>
+            ✓ {pct}% off will be applied to all {product.name} variants
+          </p>
+        )}
+        <div className="flex gap-2 pt-1">
+          <Btn type="submit" disabled={saving}>{saving ? "Applying…" : `Apply ${pct}% discount`}</Btn>
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -572,7 +659,6 @@ function ColoursTab({ showToast }: { showToast: (m:string) => void }) {
         <Btn onClick={() => setModal("new")}>+ Add colour</Btn>
       </div>
 
-      {/* search + filter */}
       <div className="flex flex-wrap gap-3">
         <div className="flex-1 min-w-[200px]">
           <SearchBar value={search} onChange={setSearch} placeholder="Search by name, code, family…" />
@@ -797,7 +883,6 @@ function ProductModal({ product, onClose, onSaved, onDeleted, showToast }: {
           <input className={inp} value={form.image_url} onChange={set("image_url")} placeholder="https://…" />
         </Field>
 
-        {/* variants */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-[700] uppercase tracking-wide" style={{ color:"#6f6a62" }}>Variants (size & price)</span>
@@ -917,14 +1002,17 @@ function RoomModal({ room, onClose, onSaved, onDeleted, showToast }: {
 }
 
 /* ════════════════════════════════════════════════
-   ORDERS TAB
+   ORDERS TAB  — with bulk status update
 ════════════════════════════════════════════════ */
 function OrdersTab({ showToast }: { showToast: (m:string) => void }) {
-  const [orders, setOrders]   = useState<AdminOrder[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter]   = useState("");
-  const [search, setSearch]   = useState("");
-  const [detail, setDetail]   = useState<AdminOrder|null>(null);
+  const [orders, setOrders]     = useState<AdminOrder[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [filter, setFilter]     = useState("");
+  const [search, setSearch]     = useState("");
+  const [detail, setDetail]     = useState<AdminOrder|null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkStatus, setBulkStatus] = useState("paid");
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -942,610 +1030,16 @@ function OrdersTab({ showToast }: { showToast: (m:string) => void }) {
     return matchStatus && matchSearch;
   });
 
-  const exportOrdersCSV = () => {
-    downloadCSV("micmikes-orders.csv", filtered.map(o => ({
-      ID: o.id,
-      Name: o.name,
-      Phone: o.phone,
-      Email: o.email,
-      County: o.county,
-      Town: o.town,
-      Total_KES: o.total_kes,
-      Status: o.status,
-      MPesa_Ref: o.mpesa_ref,
-      Date: new Date(o.created_at).toLocaleDateString("en-KE"),
-    })));
-  };
-
-  const updateStatus = async (id: string, status: string) => {
-    try {
-      await api(`/api/admin/orders/${id}`, { method:"PATCH", body: JSON.stringify({ status }) });
-      setOrders(prev => prev.map(o => o.id===id ? { ...o, status } : o));
-      if (detail?.id === id) setDetail(prev => prev ? { ...prev, status } : null);
-      showToast(`Status → ${status}`);
-    } catch (e) { showToast(`${e}`); }
-  };
-
-  if (loading) return <Spinner />;
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:22, fontWeight:600 }}>Orders <span className="text-[#9b9589] text-[16px] font-normal">({orders.length})</span></h2>
-        <Btn variant="outline" size="sm" onClick={exportOrdersCSV}>⬇ Export CSV</Btn>
-      </div>
-
-      <div className="flex flex-wrap gap-3">
-        <div className="flex-1 min-w-[200px]">
-          <SearchBar value={search} onChange={setSearch} placeholder="Search name, phone, M-Pesa ref, county…" />
-        </div>
-        <select className={sel + " w-auto"} value={filter} onChange={e => setFilter(e.target.value)}>
-          <option value="">All statuses</option>
-          {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-      </div>
-
-      {filtered.length === 0 && (
-        <p className="text-[13px] py-8 text-center" style={{ color:"#9b9589" }}>No orders found.</p>
-      )}
-
-      <div className="space-y-2">
-        {filtered.map(o => (
-          <div key={o.id} className="bg-white rounded-[14px] px-5 py-4 flex flex-wrap items-center gap-3 cursor-pointer hover:shadow-sm transition"
-            style={{ border:"1px solid #ebe2d2" }} onClick={() => setDetail(o)}>
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-[700]">{o.name}</p>
-              <p className="text-[11px] mt-0.5" style={{ color:"#9b9589" }}>{o.phone} · {o.county}, {o.town}</p>
-              {o.mpesa_ref && <p className="text-[11px] mt-0.5 font-mono" style={{ color:"#6f6a62" }}>M-Pesa: {o.mpesa_ref}</p>}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge s={o.status} />
-              <span className="text-[13px] font-[700]">{kes(o.total_kes)}</span>
-              <span className="text-[11px]" style={{ color:"#9b9589" }}>{new Date(o.created_at).toLocaleDateString("en-KE",{day:"numeric",month:"short"})}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {detail && (
-        <OrderDetailModal
-          order={detail}
-          onClose={() => setDetail(null)}
-          onStatusChange={updateStatus}
-        />
-      )}
-    </div>
-  );
-}
-
-function OrderDetailModal({ order, onClose, onStatusChange }: {
-  order: AdminOrder; onClose: () => void; onStatusChange: (id:string, s:string) => void;
-}) {
-  const waMsg = `Hi ${order.name}, your MicMikes Paints order #${order.id.slice(0,8).toUpperCase()} (${kes(order.total_kes)}) has been dispatched. Expected delivery: 1-3 business days. Thank you! 🎨`;
-  const waMsgPayment = `Hi ${order.name}, please complete payment for your MicMikes Paints order of ${kes(order.total_kes)} via M-Pesa to 0700000000. Use Ref: ${order.id.slice(0,8).toUpperCase()}. Thank you!`;
-
-  return (
-    <Modal title={`Order — ${order.name}`} onClose={onClose} wide>
-      <div className="space-y-5">
-        {/* customer info */}
-        <div className="rounded-[12px] p-4 space-y-1" style={{ background:"#f8f4ef" }}>
-          <p className="text-[13px] font-[700]">{order.name}</p>
-          <p className="text-[12px]" style={{ color:"#6f6a62" }}>{order.phone} · {order.email || "—"}</p>
-          <p className="text-[12px]" style={{ color:"#6f6a62" }}>{order.county}, {order.town}</p>
-          {order.mpesa_ref && <p className="text-[12px] font-mono" style={{ color:"#6f6a62" }}>M-Pesa Ref: {order.mpesa_ref}</p>}
-          <p className="text-[11px] mt-1" style={{ color:"#9b9589" }}>Placed: {new Date(order.created_at).toLocaleString("en-KE")}</p>
-        </div>
-
-        {/* WhatsApp quick links */}
-        <div>
-          <p className="text-[11px] font-[700] uppercase tracking-wide mb-2" style={{ color:"#6f6a62" }}>WhatsApp</p>
-          <div className="flex flex-wrap gap-2">
-            <a href={waLink(order.phone, waMsgPayment)} target="_blank" rel="noopener noreferrer">
-              <Btn variant="outline" size="sm">💬 Request Payment</Btn>
-            </a>
-            <a href={waLink(order.phone, waMsg)} target="_blank" rel="noopener noreferrer">
-              <Btn variant="outline" size="sm">🚚 Dispatch Notice</Btn>
-            </a>
-            <a href={waLink(order.phone, `Hi ${order.name}, your MicMikes Paints order has been delivered! We hope you love the colours. 😊`)} target="_blank" rel="noopener noreferrer">
-              <Btn variant="outline" size="sm">✅ Delivered</Btn>
-            </a>
-          </div>
-        </div>
-
-        {/* items */}
-        <div>
-          <p className="text-[11px] font-[700] uppercase tracking-wide mb-2" style={{ color:"#6f6a62" }}>Items</p>
-          <div className="space-y-2">
-            {order.items.map((item, i) => (
-              <div key={i} className="flex items-center gap-3 py-2 border-b last:border-0" style={{ borderColor:"#f0ebe2" }}>
-                <div className="w-5 h-5 rounded-full shrink-0" style={{ background: item.colour_hex, border:"1px solid rgba(0,0,0,0.1)" }} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-[600] truncate">{item.product_slug}</p>
-                  <p className="text-[11px]" style={{ color:"#9b9589" }}>{item.colour_name} · {item.size} · {item.finish}</p>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="text-[13px] font-[700]">{kes(item.unit_kes * item.quantity)}</p>
-                  <p className="text-[11px]" style={{ color:"#9b9589" }}>×{item.quantity} @ {kes(item.unit_kes)}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="flex justify-between pt-3 mt-1 border-t" style={{ borderColor:"#ebe2d2" }}>
-            <span className="text-[13px] font-[700]">Total</span>
-            <span className="text-[15px] font-[700]" style={{ color:"#B84A32" }}>{kes(order.total_kes)}</span>
-          </div>
-        </div>
-
-        {/* status */}
-        <div>
-          <p className="text-[11px] font-[700] uppercase tracking-wide mb-2" style={{ color:"#6f6a62" }}>Update status</p>
-          <div className="flex flex-wrap gap-2">
-            {STATUSES.map(s => (
-              <button key={s} onClick={() => onStatusChange(order.id, s)}
-                className="text-[12px] font-[600] px-3 py-1.5 rounded-full border transition"
-                style={{
-                  background: order.status===s ? "#B84A32" : "white",
-                  color: order.status===s ? "white" : "#6f6a62",
-                  borderColor: order.status===s ? "#B84A32" : "#d8ccb8",
-                }}>
-                {s}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-/* ════════════════════════════════════════════════
-   DELIVERY TAB
-════════════════════════════════════════════════ */
-function DeliveryTab({ showToast }: { showToast: (m:string) => void }) {
-  const [rates, setRates]     = useState<DeliveryRate[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [modal, setModal]     = useState<"new"|DeliveryRate|null>(null);
-  const [search, setSearch]   = useState("");
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try { setRates(await api("/api/admin/delivery-rates")); }
-    catch (e) { showToast(`${e}`); }
-    finally { setLoading(false); }
-  }, [showToast]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const filtered = rates.filter(r => {
-    const q = search.toLowerCase();
-    return !q || r.county.toLowerCase().includes(q) || (r.town ?? "").toLowerCase().includes(q);
+  /* ── selection helpers ── */
+  const toggleOne = (id: string) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
   });
-
-  if (loading) return <Spinner />;
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:22, fontWeight:600 }}>Delivery Rates <span className="text-[#9b9589] text-[16px] font-normal">({rates.length})</span></h2>
-        <Btn onClick={() => setModal("new")}>+ Add rate</Btn>
-      </div>
-
-      <SearchBar value={search} onChange={setSearch} placeholder="Search county or town…" />
-
-      <div className="bg-white rounded-[16px] overflow-hidden" style={{ border:"1px solid #ebe2d2" }}>
-        <table className="w-full text-[13px]">
-          <thead>
-            <tr className="border-b" style={{ borderColor:"#ebe2d2", background:"#f8f4ef" }}>
-              <th className="text-left px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>County</th>
-              <th className="text-left px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>Town</th>
-              <th className="text-right px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>Rate</th>
-              <th className="px-5 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(r => (
-              <tr key={r.id} className="border-b hover:bg-[#f8f4ef] transition" style={{ borderColor:"#f0ebe2" }}>
-                <td className="px-5 py-3 font-[600]">{r.county}</td>
-                <td className="px-5 py-3" style={{ color:"#6f6a62" }}>{r.town ?? <span style={{ color:"#c0b8ac" }}>All towns</span>}</td>
-                <td className="px-5 py-3 text-right font-[700]">{kes(r.rate_kes)}</td>
-                <td className="px-5 py-3 text-right">
-                  <Btn size="sm" variant="ghost" onClick={() => setModal(r)}>Edit</Btn>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {filtered.length === 0 && (
-          <p className="text-[13px] py-8 text-center" style={{ color:"#9b9589" }}>No rates found.</p>
-        )}
-      </div>
-
-      {modal && (
-        <DeliveryModal
-          rate={modal === "new" ? null : modal}
-          onClose={() => setModal(null)}
-          onSaved={() => { setModal(null); load(); showToast(modal === "new" ? "Rate added" : "Rate updated"); }}
-          onDeleted={() => { setModal(null); load(); showToast("Rate deleted"); }}
-          showToast={showToast}
-        />
-      )}
-    </div>
-  );
-}
-
-function DeliveryModal({ rate, onClose, onSaved, onDeleted, showToast }: {
-  rate: DeliveryRate | null; onClose: () => void; onSaved: () => void; onDeleted: () => void; showToast: (m:string) => void;
-}) {
-  const [form, setForm] = useState({ county: rate?.county ?? "", town: rate?.town ?? "", rate_kes: rate?.rate_kes ?? 0 });
-  const [saving, setSaving] = useState(false);
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm(f => ({ ...f, [k]: k==="rate_kes" ? Number(e.target.value) : e.target.value }));
-
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault(); setSaving(true);
-    try {
-      const body = { county: form.county, town: form.town || null, rate_kes: form.rate_kes };
-      if (rate) await api(`/api/admin/delivery-rates/${rate.id}`, { method:"PATCH", body: JSON.stringify(body) });
-      else      await api("/api/admin/delivery-rates", { method:"POST", body: JSON.stringify(body) });
-      onSaved();
-    } catch (err) { showToast(`${err}`); }
-    finally { setSaving(false); }
+  const toggleAll = () => {
+    if (selected.size === filtered.length) { setSelected(new Set()); }
+    else { setSelected(new Set(filtered.map(o => o.id))); }
   };
+  const clearSelection = () => setSelected(new Set());
 
-  const del = async () => {
-    if (!rate || !confirm(`Delete rate for ${rate.county}?`)) return;
-    try { await api(`/api/admin/delivery-rates/${rate.id}`, { method:"DELETE" }); onDeleted(); }
-    catch (err) { showToast(`${err}`); }
-  };
-
-  return (
-    <Modal title={rate ? "Edit Delivery Rate" : "New Delivery Rate"} onClose={onClose}>
-      <form onSubmit={save} className="space-y-4">
-        <Field label="County"><input className={inp} value={form.county} onChange={set("county")} required /></Field>
-        <Field label="Town" hint="Leave blank to apply to all towns in this county"><input className={inp} value={form.town} onChange={set("town")} /></Field>
-        <Field label="Rate (KES)"><input className={inp} type="number" value={form.rate_kes} onChange={set("rate_kes")} min={0} required /></Field>
-        <div className="flex gap-2 pt-2">
-          <Btn type="submit" disabled={saving}>{saving ? "Saving…" : rate ? "Save changes" : "Add rate"}</Btn>
-          {rate && <Btn variant="danger" onClick={del}>Delete</Btn>}
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-/* ════════════════════════════════════════════════
-   STOCK TAB  (NEW)
-════════════════════════════════════════════════ */
-function StockTab({ showToast }: { showToast: (m:string) => void }) {
-  const [stock, setStock]     = useState<StockEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch]   = useState("");
-  const [editing, setEditing] = useState<StockEntry | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      // Falls back gracefully if endpoint doesn't exist yet
-      const data = await api("/api/admin/stock").catch(() => []);
-      setStock(data ?? []);
-    } catch { setStock([]); }
-    finally { setLoading(false); }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  const filtered = stock.filter(s => {
-    const q = search.toLowerCase();
-    return !q || s.product_name.toLowerCase().includes(q) || s.size.toLowerCase().includes(q) || (s.colour_name ?? "").toLowerCase().includes(q);
-  });
-
-  const lowStock = filtered.filter(s => s.stock <= s.low_stock_threshold);
-  const normal   = filtered.filter(s => s.stock > s.low_stock_threshold);
-
-  const saveStock = async (entry: StockEntry, newQty: number, newThreshold: number) => {
-    try {
-      await api(`/api/admin/stock/${entry.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ stock: newQty, low_stock_threshold: newThreshold }),
-      });
-      setStock(prev => prev.map(s => s.id === entry.id ? { ...s, stock: newQty, low_stock_threshold: newThreshold } : s));
-      setEditing(null);
-      showToast("Stock updated");
-    } catch (e) { showToast(`${e}`); }
-  };
-
-  if (loading) return <Spinner />;
-
-  if (stock.length === 0) {
-    return (
-      <div className="space-y-6">
-        <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:22, fontWeight:600 }}>Stock / Inventory</h2>
-        <div className="bg-white rounded-[16px] p-10 text-center" style={{ border:"1px solid #ebe2d2" }}>
-          <p className="text-[32px] mb-3">📋</p>
-          <p className="text-[14px] font-[600]">No stock data yet</p>
-          <p className="text-[13px] mt-2 max-w-sm mx-auto" style={{ color:"#9b9589" }}>
-            Once the <code className="bg-[#f0ebe2] px-1 rounded">/api/admin/stock</code> endpoint is set up, inventory levels per product variant will appear here.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:22, fontWeight:600 }}>Stock / Inventory</h2>
-          {lowStock.length > 0 && (
-            <p className="text-[12px] mt-0.5 font-[600]" style={{ color:"#dc2626" }}>⚠️ {lowStock.length} variant{lowStock.length>1?"s":""} below threshold</p>
-          )}
-        </div>
-        <Btn variant="outline" size="sm" onClick={load}>↻ Refresh</Btn>
-      </div>
-
-      <SearchBar value={search} onChange={setSearch} placeholder="Search product, size, colour…" />
-
-      {/* low stock alert */}
-      {lowStock.length > 0 && (
-        <div className="rounded-[16px] p-5" style={{ background:"#fff5f5", border:"1px solid #fecaca" }}>
-          <p className="text-[12px] font-[700] mb-3" style={{ color:"#dc2626" }}>LOW STOCK — Restock Needed</p>
-          <div className="space-y-2">
-            {lowStock.map(s => (
-              <div key={s.id} className="flex items-center justify-between gap-3 bg-white rounded-[10px] px-4 py-3" style={{ border:"1px solid #fecaca" }}>
-                <div>
-                  <p className="text-[13px] font-[600]">{s.product_name} · {s.size}</p>
-                  {s.colour_name && <p className="text-[11px]" style={{ color:"#9b9589" }}>{s.colour_name}</p>}
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-[13px] font-[700]" style={{ color:"#dc2626" }}>{s.stock} left</span>
-                  <Btn size="sm" variant="danger" onClick={() => setEditing(s)}>Restock</Btn>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* full stock table */}
-      <div className="bg-white rounded-[16px] overflow-hidden" style={{ border:"1px solid #ebe2d2" }}>
-        <table className="w-full text-[13px]">
-          <thead>
-            <tr className="border-b" style={{ borderColor:"#ebe2d2", background:"#f8f4ef" }}>
-              <th className="text-left px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>Product</th>
-              <th className="text-left px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>Size</th>
-              <th className="text-left px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>Colour</th>
-              <th className="text-right px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>In Stock</th>
-              <th className="text-right px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>Threshold</th>
-              <th className="px-5 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {normal.map(s => (
-              <tr key={s.id} className="border-b hover:bg-[#f8f4ef] transition" style={{ borderColor:"#f0ebe2" }}>
-                <td className="px-5 py-3 font-[600]">{s.product_name}</td>
-                <td className="px-5 py-3" style={{ color:"#6f6a62" }}>{s.size}</td>
-                <td className="px-5 py-3">
-                  {s.colour_name
-                    ? <span style={{ color:"#6f6a62" }}>{s.colour_name}</span>
-                    : <span style={{ color:"#c0b8ac" }}>—</span>}
-                </td>
-                <td className="px-5 py-3 text-right font-[700]">{s.stock}</td>
-                <td className="px-5 py-3 text-right" style={{ color:"#9b9589" }}>{s.low_stock_threshold}</td>
-                <td className="px-5 py-3 text-right">
-                  <Btn size="sm" variant="ghost" onClick={() => setEditing(s)}>Edit</Btn>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {editing && (
-        <StockEditModal
-          entry={editing}
-          onClose={() => setEditing(null)}
-          onSave={saveStock}
-        />
-      )}
-    </div>
-  );
-}
-
-function StockEditModal({ entry, onClose, onSave }: {
-  entry: StockEntry; onClose: () => void; onSave: (e: StockEntry, qty: number, threshold: number) => void;
-}) {
-  const [qty, setQty] = useState(entry.stock);
-  const [threshold, setThreshold] = useState(entry.low_stock_threshold);
-
-  return (
-    <Modal title={`Update Stock — ${entry.product_name}`} onClose={onClose}>
-      <div className="space-y-4">
-        <div className="rounded-[10px] p-3" style={{ background:"#f8f4ef" }}>
-          <p className="text-[12px]" style={{ color:"#6f6a62" }}>{entry.size}{entry.colour_name ? ` · ${entry.colour_name}` : ""}</p>
-        </div>
-        <Field label="Units in stock">
-          <input className={inp} type="number" min={0} value={qty} onChange={e => setQty(Number(e.target.value))} />
-        </Field>
-        <Field label="Low stock alert threshold" hint="You'll see an alert when stock falls to or below this number">
-          <input className={inp} type="number" min={0} value={threshold} onChange={e => setThreshold(Number(e.target.value))} />
-        </Field>
-        <div className="flex gap-2 pt-2">
-          <Btn onClick={() => onSave(entry, qty, threshold)}>Save stock</Btn>
-          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-/* ════════════════════════════════════════════════
-   CUSTOMERS TAB  (NEW)
-════════════════════════════════════════════════ */
-function CustomersTab({ showToast }: { showToast: (m:string) => void }) {
-  const [customers, setCustomers] = useState<CustomerRow[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [search, setSearch]       = useState("");
-  const [detail, setDetail]       = useState<CustomerRow | null>(null);
-  const [orders, setOrders]       = useState<AdminOrder[]>([]);
-  const [ordersLoading, setOrdersLoading] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await api("/api/admin/customers").catch(() => []);
-      setCustomers(data ?? []);
-    } catch { setCustomers([]); }
-    finally { setLoading(false); }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  const openCustomer = async (c: CustomerRow) => {
-    setDetail(c);
-    setOrdersLoading(true);
-    try {
-      const data = await api(`/api/admin/customers/${c.id}/orders`).catch(() => []);
-      setOrders(data ?? []);
-    } catch { setOrders([]); }
-    finally { setOrdersLoading(false); }
-  };
-
-  const filtered = customers.filter(c => {
-    const q = search.toLowerCase();
-    return !q || c.name.toLowerCase().includes(q) || c.phone.includes(q) || c.email.toLowerCase().includes(q) || c.county.toLowerCase().includes(q);
-  });
-
-  const exportCustomersCSV = () => {
-    downloadCSV("micmikes-customers.csv", filtered.map(c => ({
-      Name: c.name,
-      Phone: c.phone,
-      Email: c.email,
-      County: c.county,
-      Town: c.town,
-      Orders: c.order_count,
-      Total_Spent_KES: c.total_spent_kes,
-      Last_Order: c.last_order_at ? new Date(c.last_order_at).toLocaleDateString("en-KE") : "",
-    })));
-  };
-
-  if (loading) return <Spinner />;
-
-  if (customers.length === 0) {
-    return (
-      <div className="space-y-6">
-        <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:22, fontWeight:600 }}>Customers</h2>
-        <div className="bg-white rounded-[16px] p-10 text-center" style={{ border:"1px solid #ebe2d2" }}>
-          <p className="text-[32px] mb-3">👤</p>
-          <p className="text-[14px] font-[600]">No customer data yet</p>
-          <p className="text-[13px] mt-2 max-w-sm mx-auto" style={{ color:"#9b9589" }}>
-            Once the <code className="bg-[#f0ebe2] px-1 rounded">/api/admin/customers</code> endpoint is set up, your customer directory will appear here.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:22, fontWeight:600 }}>Customers <span className="text-[#9b9589] text-[16px] font-normal">({customers.length})</span></h2>
-        <Btn variant="outline" size="sm" onClick={exportCustomersCSV}>⬇ Export CSV</Btn>
-      </div>
-
-      <SearchBar value={search} onChange={setSearch} placeholder="Search name, phone, email, county…" />
-
-      <div className="bg-white rounded-[16px] overflow-hidden" style={{ border:"1px solid #ebe2d2" }}>
-        <table className="w-full text-[13px]">
-          <thead>
-            <tr className="border-b" style={{ borderColor:"#ebe2d2", background:"#f8f4ef" }}>
-              <th className="text-left px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>Customer</th>
-              <th className="text-left px-5 py-3 font-[700] text-[11px] uppercase tracking-wide hidden sm:table-cell" style={{ color:"#9b9589" }}>County</th>
-              <th className="text-right px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>Orders</th>
-              <th className="text-right px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>Spent</th>
-              <th className="text-right px-5 py-3 font-[700] text-[11px] uppercase tracking-wide hidden md:table-cell" style={{ color:"#9b9589" }}>Last Order</th>
-              <th className="px-5 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(c => (
-              <tr key={c.id} className="border-b hover:bg-[#f8f4ef] transition cursor-pointer" style={{ borderColor:"#f0ebe2" }} onClick={() => openCustomer(c)}>
-                <td className="px-5 py-3">
-                  <p className="font-[600]">{c.name}</p>
-                  <p className="text-[11px] mt-0.5" style={{ color:"#9b9589" }}>{c.phone}</p>
-                </td>
-                <td className="px-5 py-3 hidden sm:table-cell" style={{ color:"#6f6a62" }}>{c.county}</td>
-                <td className="px-5 py-3 text-right font-[700]">{c.order_count}</td>
-                <td className="px-5 py-3 text-right font-[700]" style={{ color:"#B84A32" }}>{kes(c.total_spent_kes)}</td>
-                <td className="px-5 py-3 text-right hidden md:table-cell" style={{ color:"#9b9589" }}>
-                  {c.last_order_at ? new Date(c.last_order_at).toLocaleDateString("en-KE", { day:"numeric", month:"short", year:"numeric" }) : "—"}
-                </td>
-                <td className="px-5 py-3 text-right">
-                  <Btn size="sm" variant="ghost">View</Btn>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {detail && (
-        <Modal title={`${detail.name}`} onClose={() => { setDetail(null); setOrders([]); }} wide>
-          <div className="space-y-5">
-            {/* customer summary */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {[
-                { label:"Total Spent", value: kes(detail.total_spent_kes), color:"#B84A32" },
-                { label:"Orders", value: String(detail.order_count), color:"#2B2B2E" },
-                { label:"County", value: detail.county, color:"#2B2B2E" },
-                { label:"Town", value: detail.town, color:"#2B2B2E" },
-              ].map(k => (
-                <div key={k.label} className="rounded-[10px] p-3 text-center" style={{ background:"#f8f4ef" }}>
-                  <p className="text-[11px] font-[700] uppercase tracking-wide mb-1" style={{ color:"#9b9589" }}>{k.label}</p>
-                  <p className="text-[14px] font-[700]" style={{ color: k.color }}>{k.value}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* contact */}
-            <div className="flex flex-wrap gap-2">
-              <a href={`tel:${detail.phone}`}>
-                <Btn variant="outline" size="sm">📞 Call</Btn>
-              </a>
-              <a href={waLink(detail.phone, `Hi ${detail.name}, thank you for being a MicMikes Paints customer! 🎨`)} target="_blank" rel="noopener noreferrer">
-                <Btn variant="outline" size="sm">💬 WhatsApp</Btn>
-              </a>
-              {detail.email && (
-                <a href={`mailto:${detail.email}`}>
-                  <Btn variant="outline" size="sm">✉️ Email</Btn>
-                </a>
-              )}
-            </div>
-
-            {/* order history */}
-            <div>
-              <p className="text-[11px] font-[700] uppercase tracking-wide mb-3" style={{ color:"#6f6a62" }}>Order History</p>
-              {ordersLoading ? <Spinner /> : orders.length === 0 ? (
-                <p className="text-[13px]" style={{ color:"#9b9589" }}>No orders found for this customer.</p>
-              ) : (
-                <div className="space-y-2">
-                  {orders.map(o => (
-                    <div key={o.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 rounded-[10px]" style={{ background:"#f8f4ef" }}>
-                      <div>
-                        <p className="text-[12px] font-mono" style={{ color:"#9b9589" }}>{o.id.slice(0,8).toUpperCase()}</p>
-                        <p className="text-[11px]" style={{ color:"#9b9589" }}>{new Date(o.created_at).toLocaleDateString("en-KE", { day:"numeric", month:"short", year:"numeric" })}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <StatusBadge s={o.status} />
-                        <span className="text-[13px] font-[700]">{kes(o.total_kes)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </Modal>
-      )}
-    </div>
-  );
-}
+  /* ── bulk update ──

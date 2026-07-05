@@ -7,12 +7,16 @@ import { neon } from "@neondatabase/serverless";
    Provider: NVIDIA's free OpenAI-compatible API (integrate.api.nvidia.com).
    Needs env NVIDIA_API_KEY (nvapi-...). Model overridable via NVIDIA_MODEL.
 
+   Primary model  : z-ai/glm-5.2          (53B, 1M ctx, agentic + reasoning)
+   Fallback model : minimaxai/minimax-m3  (428B, 1M ctx, multimodal, tool-use)
+
    Read-only: grounds prices/delivery/catalogue in live DB data, and may add
    general paint/decor advice. Never places orders or takes payment.
 ───────────────────────────────────────────────────────────────────────────── */
 
-const NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
-const DEFAULT_MODEL = "meta/llama-3.3-70b-instruct";
+const NVIDIA_URL   = "https://integrate.api.nvidia.com/v1/chat/completions";
+const DEFAULT_MODEL  = "z-ai/glm-5.2";
+const FALLBACK_MODEL = "minimaxai/minimax-m3";
 
 const MAX_TURNS = 12;         // cap history sent upstream
 const MAX_CHARS = 1500;       // per-message cap
@@ -57,7 +61,7 @@ async function buildContext(): Promise<string> {
   } catch { /* fall back to policy-only context */ }
 
   const text = [
-    colours && `COLOURS (by family):\n${colours}`,
+    colours  && `COLOURS (by family):\n${colours}`,
     products && `PRODUCTS (price range across 1L/4L/20L):\n${products}`,
     delivery && `DELIVERY RATES (sample): ${delivery}`,
   ].filter(Boolean).join("\n\n");
@@ -86,6 +90,43 @@ STYLE
 - You cannot place orders or take payment; guide customers to add items to the cart and check out on the site.`;
 }
 
+async function callNvidia(
+  model: string,
+  messages: object[],
+  apiKey: string,
+): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25000);
+  try {
+    const upstream = await fetch(NVIDIA_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 0.6,
+        max_tokens: 500,
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+    if (!upstream.ok) {
+      console.error(`[api/chat] ${model} error ${upstream.status}`);
+      return null;
+    }
+    const data = (await upstream.json()) as { choices?: { message?: { content?: string } }[] };
+    return data.choices?.[0]?.message?.content?.trim() ?? null;
+  } catch (err) {
+    console.error(`[api/chat] ${model} threw:`, err);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const origin = req.headers.origin ?? "";
   if (ALLOWED_ORIGINS.includes(origin)) res.setHeader("Access-Control-Allow-Origin", origin);
@@ -95,7 +136,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   if (!process.env.NVIDIA_API_KEY) {
-    return res.status(503).json({ error: "Chat is not configured yet. Please try WhatsApp: https://wa.me/254712345678" });
+    return res.status(503).json({
+      error: "Chat is not configured yet. Please try WhatsApp: https://wa.me/254712345678",
+    });
   }
 
   const body = req.body as { messages?: ChatMsg[] };
@@ -110,41 +153,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const context = await buildContext();
+    const context  = await buildContext();
     const messages = [{ role: "system", content: systemPrompt(context) }, ...cleaned];
+    const apiKey   = process.env.NVIDIA_API_KEY;
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 25000);
-    let upstream: Response;
-    try {
-      upstream = await fetch(NVIDIA_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.NVIDIA_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: process.env.NVIDIA_MODEL || DEFAULT_MODEL,
-          messages,
-          temperature: 0.6,
-          max_tokens: 500,
-          stream: false,
-        }),
-        signal: controller.signal,
+    // 1. Try primary model (GLM-5.2)
+    const primary = process.env.NVIDIA_MODEL || DEFAULT_MODEL;
+    let reply = await callNvidia(primary, messages, apiKey);
+
+    // 2. Auto-fallback to MiniMax M3 if primary fails
+    if (!reply && primary !== FALLBACK_MODEL) {
+      console.warn(`[api/chat] primary (${primary}) failed — falling back to ${FALLBACK_MODEL}`);
+      reply = await callNvidia(FALLBACK_MODEL, messages, apiKey);
+    }
+
+    if (!reply) {
+      return res.status(502).json({
+        error: "The assistant is busy right now. Please try again, or reach us on WhatsApp.",
       });
-    } finally {
-      clearTimeout(timer);
     }
-
-    if (!upstream.ok) {
-      const detail = await upstream.text();
-      console.error("[api/chat] NVIDIA error", upstream.status, detail.slice(0, 300));
-      return res.status(502).json({ error: "The assistant is busy right now. Please try again, or reach us on WhatsApp." });
-    }
-
-    const data = (await upstream.json()) as { choices?: { message?: { content?: string } }[] };
-    const reply = data.choices?.[0]?.message?.content?.trim();
-    if (!reply) return res.status(502).json({ error: "No response. Please try again." });
 
     return res.status(200).json({ reply });
   } catch (err) {

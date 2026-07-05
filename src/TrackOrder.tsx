@@ -35,7 +35,7 @@ const STATUS_STYLES: Record<string, { bg: string; color: string; label: string; 
 
 const STEPS = ["pending", "paid", "processing", "shipped", "delivered"];
 
-const SUCCESSFUL_STATUSES  = new Set(["paid", "processing", "shipped", "delivered"]);
+const SUCCESSFUL_STATUSES   = new Set(["paid", "processing", "shipped", "delivered"]);
 const UNSUCCESSFUL_STATUSES = new Set(["pending", "cancelled"]);
 
 function StatusBadge({ status }: { status: string }) {
@@ -53,14 +53,14 @@ function ProgressBar({ status }: { status: string }) {
   const idx = STEPS.indexOf(status);
   if (idx === -1) return null;
   return (
-    <div className="flex items-center gap-0 mt-4 mb-1">
+    <div className="flex items-center gap-0 mt-3 mb-1">
       {STEPS.map((step, i) => {
         const done    = i <= idx;
         const current = i === idx;
         return (
           <div key={step} className="flex items-center flex-1 last:flex-none">
             <div className="flex flex-col items-center">
-              <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-[700] border-2 transition-all"
+              <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-[700] border-2 transition-all"
                 style={{
                   background: done ? "#B84A32" : "#fff",
                   borderColor: done ? "#B84A32" : "#e2d3b7",
@@ -69,11 +69,11 @@ function ProgressBar({ status }: { status: string }) {
                 }}>
                 {done ? "✓" : i + 1}
               </div>
-              <span className="text-[9.5px] mt-[3px] font-[600] capitalize text-center"
+              <span className="text-[8px] mt-[2px] font-[600] capitalize text-center"
                 style={{ color: done ? "#B84A32" : "#9b9589" }}>{step}</span>
             </div>
             {i < STEPS.length - 1 && (
-              <div className="flex-1 h-[2px] mx-1 rounded-full mb-4"
+              <div className="flex-1 h-[2px] mx-0.5 rounded-full mb-4"
                 style={{ background: i < idx ? "#B84A32" : "#e2d3b7" }} />
             )}
           </div>
@@ -85,60 +85,48 @@ function ProgressBar({ status }: { status: string }) {
 
 function OrderCard({ order }: { order: TrackedOrder }) {
   const date = new Date(order.created_at).toLocaleDateString("en-KE", {
-    day: "numeric", month: "long", year: "numeric",
+    day: "numeric", month: "short", year: "numeric",
   });
   return (
-    <div className="mm-card rounded-[20px] overflow-hidden mm-shadow">
+    <div className="mm-card rounded-[18px] overflow-hidden mm-shadow">
       {/* Header */}
-      <div className="px-5 py-4 border-b flex flex-wrap items-start justify-between gap-3"
+      <div className="px-4 py-3 border-b flex flex-wrap items-start justify-between gap-2"
         style={{ borderColor: "#ebe2d2", background: "#fffdf8" }}>
         <div>
-          <div className="font-mono2 text-[12.5px] font-[600]" style={{ color: "#B84A32" }}>{order.reference}</div>
-          <div className="text-[12px] mm-muted mt-[2px]">{date} · {order.town}, {order.county}</div>
+          <div className="font-mono2 text-[11.5px] font-[600]" style={{ color: "#B84A32" }}>{order.reference}</div>
+          <div className="text-[11px] mm-muted mt-[1px]">{date} · {order.town}, {order.county}</div>
         </div>
         <StatusBadge status={order.status} />
       </div>
 
       {/* Progress */}
-      <div className="px-5 pt-4 pb-2">
+      <div className="px-4 pt-3 pb-1">
         <ProgressBar status={order.status} />
       </div>
 
       {/* Items */}
-      <div className="px-5 pb-3 space-y-2">
+      <div className="px-4 pb-2 space-y-1.5">
         {order.items.map((item, i) => (
-          <div key={i} className="flex items-center gap-3 text-[13px]">
-            <div className="w-7 h-7 rounded-full border-2 border-white mm-shadow flex-shrink-0"
+          <div key={i} className="flex items-center gap-2 text-[12px]">
+            <div className="w-5 h-5 rounded-full border-2 border-white mm-shadow flex-shrink-0"
               style={{ backgroundColor: item.colourHex }} />
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 truncate">
               <span className="font-[600] capitalize">{item.productSlug.replace(/-/g, " ")}</span>
-              <span className="mm-muted"> · {item.colourName} · {item.size} · {item.finish} × {item.quantity}</span>
+              <span className="mm-muted"> · {item.colourName} · {item.size} ×{item.quantity}</span>
             </div>
-            <div className="font-[700] flex-shrink-0">{kes(item.unitKes * item.quantity)}</div>
+            <div className="font-[700] flex-shrink-0 text-[11px]">{kes(item.unitKes * item.quantity)}</div>
           </div>
         ))}
       </div>
 
       {/* Footer */}
-      <div className="px-5 py-3 border-t flex justify-between text-[13px]" style={{ borderColor: "#ebe2d2" }}>
+      <div className="px-4 py-2.5 border-t flex justify-between text-[12px]" style={{ borderColor: "#ebe2d2" }}>
         {order.delivery_kes > 0 ? (
           <span className="mm-muted">Delivery: {kes(order.delivery_kes)}</span>
         ) : (
           <span className="mm-muted">Free delivery</span>
         )}
-        <span className="font-[700] text-[15px]">Total: {kes(order.total_kes)}</span>
-      </div>
-    </div>
-  );
-}
-
-function SectionHeader({ icon, title, subtitle, color }: { icon: string; title: string; subtitle: string; color: string }) {
-  return (
-    <div className="flex items-center gap-2 mb-4">
-      <span className="text-xl">{icon}</span>
-      <div>
-        <h3 className="font-display text-[18px] font-[600]" style={{ color }}>{title}</h3>
-        <p className="text-[12px] mm-muted">{subtitle}</p>
+        <span className="font-[700] text-[13px]">Total: {kes(order.total_kes)}</span>
       </div>
     </div>
   );
@@ -173,15 +161,17 @@ export default function TrackOrder() {
 
   const successfulOrders   = orders?.filter(o => SUCCESSFUL_STATUSES.has(o.status))  ?? [];
   const unsuccessfulOrders = orders?.filter(o => UNSUCCESSFUL_STATUSES.has(o.status)) ?? [];
+  const hasResults = orders && orders.length > 0;
 
   return (
     <section id="track" className="py-12 sm:py-16 border-t" style={{ borderColor: "#ebe2d2" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-8">
-        <div className="max-w-[580px] mx-auto">
+        {/* Search bar — always centred */}
+        <div className="max-w-[540px] mx-auto">
           <h2 className="font-display text-[30px] sm:text-[36px] mb-1">Track Your Order</h2>
           <p className="mm-muted text-[14px] mb-6">Enter the M-Pesa phone number you used at checkout.</p>
 
-          <form onSubmit={lookup} className="flex gap-2 mb-8">
+          <form onSubmit={lookup} className="flex gap-2 mb-6">
             <input
               className="input flex-1"
               type="tel"
@@ -197,7 +187,7 @@ export default function TrackOrder() {
           </form>
 
           {error && (
-            <div className="text-[13px] font-[600] px-4 py-3 rounded-[12px] mb-6"
+            <div className="text-[13px] font-[600] px-4 py-3 rounded-[12px] mb-4"
               style={{ background: "#fdf0ee", color: "#B84A32" }}>{error}</div>
           )}
 
@@ -205,49 +195,62 @@ export default function TrackOrder() {
             <div className="text-center py-10">
               <div className="text-4xl mb-3">📦</div>
               <div className="font-display text-[20px] mb-1">No orders found</div>
-              <p className="mm-muted text-[13.5px]">We couldn't find any orders for that number. Check the number and try again, or call us.</p>
+              <p className="mm-muted text-[13.5px]">We couldn’t find any orders for that number. Check the number and try again, or call us.</p>
             </div>
           )}
-
-          {/* ── Successful orders ── */}
-          {successfulOrders.length > 0 && (
-            <div className="mb-8">
-              <SectionHeader
-                icon="✅"
-                title="Successful Orders"
-                subtitle={`${successfulOrders.length} order${successfulOrders.length > 1 ? "s" : ""} confirmed`}
-                color="#065f46"
-              />
-              <div className="space-y-5">
-                {successfulOrders.map(order => <OrderCard key={order.id} order={order} />)}
-              </div>
-            </div>
-          )}
-
-          {/* ── Pending / Unsuccessful orders ── */}
-          {unsuccessfulOrders.length > 0 && (
-            <div className="mb-4">
-              <SectionHeader
-                icon="⏳"
-                title="Pending / Unsuccessful"
-                subtitle={`${unsuccessfulOrders.length} order${unsuccessfulOrders.length > 1 ? "s" : ""} · payment not yet confirmed or cancelled`}
-                color="#a16207"
-              />
-              <div className="space-y-5">
-                {unsuccessfulOrders.map(order => <OrderCard key={order.id} order={order} />)}
-              </div>
-              {unsuccessfulOrders.some(o => o.status === "pending") && (
-                <div className="mt-4 px-4 py-3 rounded-[14px] text-[13px]" style={{ background: "#fefce8", border: "1px solid #fde68a", color: "#92400e" }}>
-                  <strong>Awaiting payment?</strong> Complete your M-Pesa payment and your order status will update automatically within minutes.
-                </div>
-              )}
-            </div>
-          )}
-
-          <p className="text-center text-[12.5px] mm-muted mt-8">
-            Need help? Call <a href="tel:+254700000000" className="font-[600] hover:underline" style={{ color: "#B84A32" }}>+254 700 000 000</a>
-          </p>
         </div>
+
+        {/* Results — side by side when both sections exist, single column otherwise */}
+        {hasResults && (
+          <div className={`mt-2 ${
+            successfulOrders.length > 0 && unsuccessfulOrders.length > 0
+              ? "grid md:grid-cols-2 gap-8 items-start"
+              : "max-w-[580px] mx-auto"
+          }`}>
+
+            {/* ── Successful ── */}
+            {successfulOrders.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-lg">✅</span>
+                  <div>
+                    <h3 className="font-display text-[17px] font-[600]" style={{ color: "#065f46" }}>Successful Orders</h3>
+                    <p className="text-[11.5px] mm-muted">{successfulOrders.length} order{successfulOrders.length > 1 ? "s" : ""} confirmed</p>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  {successfulOrders.map(order => <OrderCard key={order.id} order={order} />)}
+                </div>
+              </div>
+            )}
+
+            {/* ── Pending / Unsuccessful ── */}
+            {unsuccessfulOrders.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-lg">⏳</span>
+                  <div>
+                    <h3 className="font-display text-[17px] font-[600]" style={{ color: "#a16207" }}>Pending / Unsuccessful</h3>
+                    <p className="text-[11.5px] mm-muted">{unsuccessfulOrders.length} order{unsuccessfulOrders.length > 1 ? "s" : ""} · not yet confirmed</p>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  {unsuccessfulOrders.map(order => <OrderCard key={order.id} order={order} />)}
+                </div>
+                {unsuccessfulOrders.some(o => o.status === "pending") && (
+                  <div className="mt-4 px-4 py-3 rounded-[14px] text-[12.5px]" style={{ background: "#fefce8", border: "1px solid #fde68a", color: "#92400e" }}>
+                    <strong>Awaiting payment?</strong> Complete your M-Pesa payment and your order will update automatically.
+                  </div>
+                )}
+              </div>
+            )}
+
+          </div>
+        )}
+
+        <p className="text-center text-[12.5px] mm-muted mt-10">
+          Need help? Call <a href="tel:+254700000000" className="font-[600] hover:underline" style={{ color: "#B84A32" }}>+254 700 000 000</a>
+        </p>
       </div>
     </section>
   );

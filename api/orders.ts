@@ -8,7 +8,7 @@ import {
 } from "../src/lib/validation.js";
 import { sanitize, sanitizeEmail } from "../src/lib/sanitize.js";
 
-const DELIVERY_FEE = 0; // Free delivery on all orders
+const DEFAULT_DELIVERY_FEE = 0; // fallback if no rate configured
 
 const ALLOWED_ORIGINS = [
   "https://mic-mikes-paints.vercel.app",
@@ -29,18 +29,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  // Route: POST /api/orders?type=enquiry  →  contact / enquiry form
   if (req.query.type === "enquiry") {
     return handleEnquiry(req, res);
   }
 
-  // Default route: POST /api/orders  →  place an order
   return handleOrder(req, res);
 }
 
-// ---------------------------------------------------------------------------
-// ENQUIRY handler (was api/enquiry.ts)
-// ---------------------------------------------------------------------------
 async function handleEnquiry(req: VercelRequest, res: VercelResponse) {
   const validation = enquiryFormSchema.safeParse(req.body);
   if (!validation.success) {
@@ -51,25 +46,17 @@ async function handleEnquiry(req: VercelRequest, res: VercelResponse) {
   }
 
   const { name, email, phone, message } = validation.data;
-
   const sanitized = {
     name:    sanitize(name),
     email:   sanitizeEmail(email),
-    phone:   normaliseKenyanPhone(phone), // stored as 2547XXXXXXXX
+    phone:   normaliseKenyanPhone(phone),
     message: sanitize(message),
   };
-
-  // TODO: wire up email delivery (e.g. Resend / SendGrid) or save to DB
   console.log("[enquiry]", sanitized);
-
   return res.status(200).json({ success: true, message: "Enquiry received. We will be in touch shortly!" });
 }
 
-// ---------------------------------------------------------------------------
-// ORDER handler
-// ---------------------------------------------------------------------------
 async function handleOrder(req: VercelRequest, res: VercelResponse) {
-  // --- Zod validation ---
   const validation = orderFormSchema.safeParse(req.body);
   if (!validation.success) {
     return res.status(400).json({
@@ -78,11 +65,10 @@ async function handleOrder(req: VercelRequest, res: VercelResponse) {
     });
   }
 
-  // --- Sanitize string fields ---
   const data    = validation.data;
   const name    = sanitize(data.name);
   const email   = sanitizeEmail(data.email);
-  const phone   = normaliseKenyanPhone(data.phone); // → 2547XXXXXXXX
+  const phone   = normaliseKenyanPhone(data.phone);
   const county  = sanitize(data.county);
   const town    = sanitize(data.town);
   const address = sanitize(data.address);
@@ -90,7 +76,21 @@ async function handleOrder(req: VercelRequest, res: VercelResponse) {
 
   const sql = neon(process.env.DATABASE_URL!);
 
-  // Server-side pricing — never trust client amounts
+  // Look up delivery rate set by admin for this county/town
+  let deliveryKes = DEFAULT_DELIVERY_FEE;
+  try {
+    const rateRows = await sql`
+      SELECT rate_kes FROM delivery_rates
+      WHERE LOWER(county) = LOWER(${county})
+        AND (LOWER(town) = LOWER(${town}) OR town IS NULL)
+      ORDER BY
+        CASE WHEN town IS NOT NULL AND LOWER(town) = LOWER(${town}) THEN 0 ELSE 1 END
+      LIMIT 1`;
+    if (rateRows.length) deliveryKes = Number(rateRows[0].rate_kes);
+  } catch {
+    // delivery_rates table may not exist yet — keep default
+  }
+
   const verified: {
     productId: string;
     colourId: string | null;
@@ -125,7 +125,6 @@ async function handleOrder(req: VercelRequest, res: VercelResponse) {
   }
 
   const subtotalKes = verified.reduce((s, i) => s + i.unitKes * i.quantity, 0);
-  const deliveryKes = DELIVERY_FEE; // Free delivery on all orders
   const totalKes    = subtotalKes + deliveryKes;
 
   const [order] = await sql`

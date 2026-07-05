@@ -158,10 +158,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const orderIds = orders.map(o => String(o.id));
       const items: Row[] = orders.length
         ? (await sql`
-            SELECT oi.order_id, oi.product_slug, oi.colour_id, oi.size,
-              oi.finish, oi.quantity, oi.unit_kes,
-              c.name AS colour_name, c.hex AS colour_hex
+            SELECT
+              oi.order_id,
+              p.slug  AS product_slug,
+              p.name  AS product_name,
+              oi.size,
+              oi.finish,
+              oi.quantity,
+              oi.unit_kes,
+              c.name  AS colour_name,
+              c.hex   AS colour_hex
             FROM order_items oi
+            JOIN products p ON p.id = oi.product_id
             LEFT JOIN colours c ON c.id = oi.colour_id
             WHERE oi.order_id = ANY(${orderIds})`) as Row[]
         : [];
@@ -178,6 +186,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!allowed.includes(status)) return res.status(400).json({ error: "Invalid status" });
       const [row] = await sql`UPDATE orders SET status=${status}, updated_at=now() WHERE id=${id} RETURNING id, status`;
       return res.json(row);
+    }
+    return res.status(405).end();
+  }
+
+  /* ── DELIVERY RATES ── */
+  if (resource === "delivery-rates") {
+    if (req.method === "GET") {
+      const rows = await sql`SELECT id, county, town, rate_kes, notes FROM delivery_rates ORDER BY county, town`;
+      return res.json(rows);
+    }
+    if (req.method === "POST") {
+      const { county, town, rate_kes, notes } = req.body;
+      if (!county || rate_kes === undefined) return res.status(400).json({ error: "county and rate_kes required" });
+      const [row] = await sql`
+        INSERT INTO delivery_rates (id, county, town, rate_kes, notes)
+        VALUES (gen_random_uuid(), ${String(county).trim()}, ${town ? String(town).trim() : null}, ${Number(rate_kes)}, ${notes ?? null})
+        RETURNING id, county, town, rate_kes, notes`;
+      return res.status(201).json(row);
+    }
+    if (req.method === "PUT") {
+      const { id, county, town, rate_kes, notes } = req.body;
+      const [row] = await sql`
+        UPDATE delivery_rates SET county=${String(county).trim()}, town=${town ? String(town).trim() : null}, rate_kes=${Number(rate_kes)}, notes=${notes ?? null}
+        WHERE id=${id}
+        RETURNING id, county, town, rate_kes, notes`;
+      return res.json(row);
+    }
+    if (req.method === "DELETE") {
+      const { id } = req.body;
+      await sql`DELETE FROM delivery_rates WHERE id=${id}`;
+      return res.json({ ok: true });
     }
     return res.status(405).end();
   }

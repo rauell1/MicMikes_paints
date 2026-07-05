@@ -8,7 +8,7 @@ import {
 } from "../src/lib/validation.js";
 import { sanitize, sanitizeEmail } from "../src/lib/sanitize.js";
 
-const DEFAULT_DELIVERY_FEE = 0; // fallback if no rate configured
+const DEFAULT_DELIVERY_FEE = 0;
 
 const ALLOWED_ORIGINS = [
   "https://mic-mikes-paints.vercel.app",
@@ -23,17 +23,69 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  if (req.query.type === "enquiry") {
-    return handleEnquiry(req, res);
+  if (req.method === "GET") return handleLookup(req, res);
+  if (req.method === "POST") {
+    if (req.query.type === "enquiry") return handleEnquiry(req, res);
+    return handleOrder(req, res);
   }
 
-  return handleOrder(req, res);
+  return res.status(405).json({ error: "Method not allowed" });
+}
+
+/* ── Customer order lookup by phone ── */
+async function handleLookup(req: VercelRequest, res: VercelResponse) {
+  const rawPhone = String(req.query.phone ?? "").trim();
+  if (!rawPhone) return res.status(400).json({ error: "phone query param required" });
+
+  let phone: string;
+  try { phone = normaliseKenyanPhone(rawPhone); }
+  catch { return res.status(400).json({ error: "Invalid phone number" }); }
+
+  const sql = neon(process.env.DATABASE_URL!);
+
+  const orders = await sql`
+    SELECT
+      o.id,
+      o.created_at,
+      o.status,
+      o.total_kes,
+      o.delivery_kes,
+      o.county,
+      o.town,
+      (
+        SELECT json_agg(json_build_object(
+          'productSlug', p.slug,
+          'colourName',  COALESCE(c.name, 'No colour'),
+          'colourHex',   COALESCE(c.hex,  '#cccccc'),
+          'size',        oi.size,
+          'finish',      oi.finish,
+          'quantity',    oi.quantity,
+          'unitKes',     oi.unit_kes
+        ))
+        FROM order_items oi
+        JOIN products p ON p.id = oi.product_id
+        LEFT JOIN colours c ON c.id = oi.colour_id
+        WHERE oi.order_id = o.id
+      ) AS items
+    FROM orders o
+    WHERE o.phone = ${phone}
+    ORDER BY o.created_at DESC
+    LIMIT 20
+  `;
+
+  /* Build a human-readable reference for each order */
+  const result = orders.map(o => {
+    const d   = new Date(o.created_at);
+    const ref = `INV-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}-${String(o.id).replace(/-/g, "").slice(-4).toUpperCase()}`;
+    return { ...o, reference: ref, items: o.items ?? [] };
+  });
+
+  return res.status(200).json(result);
 }
 
 async function handleEnquiry(req: VercelRequest, res: VercelResponse) {
@@ -76,7 +128,6 @@ async function handleOrder(req: VercelRequest, res: VercelResponse) {
 
   const sql = neon(process.env.DATABASE_URL!);
 
-  // Look up delivery rate set by admin for this county/town
   let deliveryKes = DEFAULT_DELIVERY_FEE;
   try {
     const rateRows = await sql`

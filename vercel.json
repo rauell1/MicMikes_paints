@@ -10,6 +10,7 @@
     { "source": "/api/admin/rooms",           "destination": "/api/admin?_r=rooms" },
     { "source": "/api/admin/orders",          "destination": "/api/admin?_r=orders" },
     { "source": "/api/admin/delivery-rates",  "destination": "/api/admin/delivery-rates" },
+    { "source": "/api/admin/dashboard",       "destination": "/api/admin/dashboard" },
     { "source": "/((?!api/).*)",              "destination": "/index.html" }
   ],
   "headers": [

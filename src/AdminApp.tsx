@@ -9,12 +9,22 @@ type AdminOrder   = { id: string; name: string; email: string; phone: string; co
 type AdminOrderItem = { product_slug: string; colour_name: string; colour_hex: string; size: string; finish: string; quantity: number; unit_kes: number };
 type DeliveryRate = { id: string; county: string; town: string | null; rate_kes: number; updated_at: string };
 
-type Tab = "colours" | "products" | "rooms" | "orders" | "delivery";
+type DashboardData = {
+  revenue: { today: number; this_week: number; this_month: number; all_time: number; total_orders: number; avg_order_value: number };
+  byStatus: { status: string; count: number }[];
+  topProducts: { name: string; slug: string; image_url: string; category: string; units_sold: number; revenue_kes: number; order_count: number }[];
+  slowMovers: { name: string; slug: string; category: string; image_url: string; last_ordered: string | null }[];
+  recentOrders: { id: string; name: string; email: string; phone: string; county: string; town: string; total_kes: number; status: string; mpesa_ref: string; created_at: string }[];
+  mpesa: { total: number; success: number; cancelled: number; failed: number };
+  byCounty: { county: string; orders: number; revenue_kes: number }[];
+};
+
+type Tab = "dashboard" | "colours" | "products" | "rooms" | "orders" | "delivery";
 
 const FAMILIES = ["Neutrals","Warm Earth","Cool Green","Blue","Red & Terracotta","Yellow & Gold"];
 const CATEGORIES = ["Paint","Primer","Supplies"];
 const STATUSES   = ["pending","paid","processing","shipped","delivered","cancelled"];
-const kes = (n: number) => `KES ${n.toLocaleString("en-KE")}`;
+const kes = (n: number) => `KES ${Number(n).toLocaleString("en-KE")}`;
 const slug = (s: string) => s.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"");
 
 async function api(path: string, opts?: RequestInit) {
@@ -168,16 +178,17 @@ function LoginPage({ onSuccess }: { onSuccess: () => void }) {
 
 /* ─── Dashboard shell ─── */
 function Dashboard({ onLogout }: { onLogout: () => void }) {
-  const [tab, setTab] = useState<Tab>("colours");
+  const [tab, setTab] = useState<Tab>("dashboard");
   const [toast, setToast] = useState("");
   const showToast = useCallback((m: string) => { setToast(m); setTimeout(() => setToast(""), 2500); }, []);
 
   const tabs: { id: Tab; label: string; icon: string }[] = [
-    { id:"colours",  label:"Colours",  icon:"🎨" },
-    { id:"products", label:"Products", icon:"🪣" },
-    { id:"rooms",    label:"Rooms",    icon:"🏠" },
-    { id:"orders",   label:"Orders",   icon:"📦" },
-    { id:"delivery", label:"Delivery", icon:"🚚" },
+    { id:"dashboard", label:"Dashboard", icon:"📊" },
+    { id:"colours",   label:"Colours",   icon:"🎨" },
+    { id:"products",  label:"Products",  icon:"🪣" },
+    { id:"rooms",     label:"Rooms",     icon:"🏠" },
+    { id:"orders",    label:"Orders",    icon:"📦" },
+    { id:"delivery",  label:"Delivery",  icon:"🚚" },
   ];
 
   return (
@@ -222,11 +233,12 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
 
       {/* content */}
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 sm:px-6 py-8">
-        {tab==="colours"  && <ColoursTab  showToast={showToast} />}
-        {tab==="products" && <ProductsTab showToast={showToast} />}
-        {tab==="rooms"    && <RoomsTab    showToast={showToast} />}
-        {tab==="orders"   && <OrdersTab   showToast={showToast} />}
-        {tab==="delivery" && <DeliveryTab showToast={showToast} />}
+        {tab==="dashboard" && <DashboardTab showToast={showToast} />}
+        {tab==="colours"   && <ColoursTab   showToast={showToast} />}
+        {tab==="products"  && <ProductsTab  showToast={showToast} />}
+        {tab==="rooms"     && <RoomsTab     showToast={showToast} />}
+        {tab==="orders"    && <OrdersTab    showToast={showToast} />}
+        {tab==="delivery"  && <DeliveryTab  showToast={showToast} />}
       </main>
 
       {toast && (
@@ -235,6 +247,257 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
           {toast}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════
+   DASHBOARD TAB
+════════════════════════════════════════════════ */
+function DashboardTab({ showToast }: { showToast: (m:string) => void }) {
+  const [data,    setData]    = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [lastRefresh, setLastRefresh] = useState(new Date());
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const d = await api("/api/admin/dashboard");
+      setData(d);
+      setLastRefresh(new Date());
+    } catch (e) { showToast(`Dashboard error: ${e}`); }
+    finally { setLoading(false); }
+  }, [showToast]);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <Spinner />;
+  if (!data)   return <p className="text-[13px]" style={{color:"#9b9589"}}>No data available yet.</p>;
+
+  const { revenue, byStatus, topProducts, slowMovers, recentOrders, mpesa, byCounty } = data;
+
+  const statusOrder = ["pending","paid","processing","shipped","delivered","cancelled"];
+  const statusColours: Record<string,string> = {
+    pending:"#d97706", paid:"#16a34a", processing:"#2563eb",
+    shipped:"#7c3aed", delivered:"#059669", cancelled:"#dc2626",
+  };
+  const statusMap = Object.fromEntries(byStatus.map(r => [r.status, Number(r.count)]));
+
+  const mpesaRate = mpesa.total > 0 ? Math.round((mpesa.success / mpesa.total) * 100) : 0;
+
+  const fmt = (d: string | null) => d ? new Date(d).toLocaleDateString("en-KE", { day:"numeric", month:"short" }) : "Never";
+  const timeAgo = (d: string) => {
+    const diff = Date.now() - new Date(d).getTime();
+    const m = Math.floor(diff/60000); const h = Math.floor(m/60); const dy = Math.floor(h/24);
+    if (dy > 0) return `${dy}d ago`; if (h > 0) return `${h}h ago`; return `${m}m ago`;
+  };
+
+  return (
+    <div className="space-y-8">
+      {/* header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>Dashboard</h2>
+          <p className="text-[12px] mt-0.5" style={{ color:"#9b9589" }}>Last refreshed {lastRefresh.toLocaleTimeString("en-KE")}</p>
+        </div>
+        <Btn variant="outline" onClick={load}>↻ Refresh</Btn>
+      </div>
+
+      {/* ── Revenue KPIs ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {([
+          { label:"Today",       value: revenue.today,       sub:"revenue" },
+          { label:"This Week",   value: revenue.this_week,   sub:"revenue" },
+          { label:"This Month",  value: revenue.this_month,  sub:"revenue" },
+          { label:"All Time",    value: revenue.all_time,    sub:"total revenue" },
+        ] as {label:string;value:number;sub:string}[]).map(card => (
+          <div key={card.label} className="bg-white rounded-[16px] p-5" style={{ border:"1px solid #ebe2d2" }}>
+            <p className="text-[11px] font-[700] uppercase tracking-wide" style={{ color:"#9b9589" }}>{card.label}</p>
+            <p className="text-[22px] font-[700] mt-1" style={{ color:"#B84A32", fontFamily:'"Playfair Display",Georgia,serif' }}>
+              {kes(card.value)}
+            </p>
+            <p className="text-[11px] mt-0.5" style={{ color:"#9b9589" }}>{card.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Secondary KPIs ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white rounded-[16px] p-5" style={{ border:"1px solid #ebe2d2" }}>
+          <p className="text-[11px] font-[700] uppercase tracking-wide" style={{ color:"#9b9589" }}>Total Orders</p>
+          <p className="text-[28px] font-[700] mt-1" style={{ color:"#2B2B2E" }}>{Number(revenue.total_orders).toLocaleString()}</p>
+          <p className="text-[11px] mt-0.5" style={{ color:"#9b9589" }}>all time (excl. cancelled)</p>
+        </div>
+        <div className="bg-white rounded-[16px] p-5" style={{ border:"1px solid #ebe2d2" }}>
+          <p className="text-[11px] font-[700] uppercase tracking-wide" style={{ color:"#9b9589" }}>Avg Order Value</p>
+          <p className="text-[22px] font-[700] mt-1" style={{ color:"#2B2B2E" }}>{kes(revenue.avg_order_value ?? 0)}</p>
+          <p className="text-[11px] mt-0.5" style={{ color:"#9b9589" }}>per order</p>
+        </div>
+        <div className="bg-white rounded-[16px] p-5" style={{ border:"1px solid #ebe2d2" }}>
+          <p className="text-[11px] font-[700] uppercase tracking-wide" style={{ color:"#9b9589" }}>M-Pesa Success</p>
+          <p className="text-[28px] font-[700] mt-1" style={{ color: mpesaRate >= 80 ? "#16a34a" : mpesaRate >= 50 ? "#d97706" : "#dc2626" }}>
+            {mpesaRate}%
+          </p>
+          <p className="text-[11px] mt-0.5" style={{ color:"#9b9589" }}>{mpesa.success}/{mpesa.total} payments · 30 days</p>
+        </div>
+        <div className="bg-white rounded-[16px] p-5" style={{ border:"1px solid #ebe2d2" }}>
+          <p className="text-[11px] font-[700] uppercase tracking-wide" style={{ color:"#9b9589" }}>Pending Orders</p>
+          <p className="text-[28px] font-[700] mt-1" style={{ color: (statusMap["pending"] ?? 0) > 0 ? "#d97706" : "#16a34a" }}>
+            {statusMap["pending"] ?? 0}
+          </p>
+          <p className="text-[11px] mt-0.5" style={{ color:"#9b9589" }}>awaiting payment</p>
+        </div>
+      </div>
+
+      {/* ── Orders by Status + M-Pesa breakdown ── */}
+      <div className="grid lg:grid-cols-2 gap-6">
+        <div className="bg-white rounded-[16px] p-6" style={{ border:"1px solid #ebe2d2" }}>
+          <h3 className="font-[700] text-[14px] mb-4">Orders by Status</h3>
+          <div className="space-y-3">
+            {statusOrder.map(s => {
+              const count = statusMap[s] ?? 0;
+              const total = byStatus.reduce((a,r) => a + Number(r.count), 0) || 1;
+              const pct = Math.round((count / total) * 100);
+              return (
+                <div key={s}>
+                  <div className="flex items-center justify-between mb-1">
+                    <StatusBadge s={s} />
+                    <span className="text-[12px] font-[600]" style={{ color:"#2B2B2E" }}>{count} <span style={{color:"#9b9589",fontWeight:400}}>({pct}%)</span></span>
+                  </div>
+                  <div className="h-1.5 rounded-full" style={{ background:"#f0ebe2" }}>
+                    <div className="h-1.5 rounded-full transition-all" style={{ width:`${pct}%`, background: statusColours[s] ?? "#9b9589" }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-[16px] p-6" style={{ border:"1px solid #ebe2d2" }}>
+          <h3 className="font-[700] text-[14px] mb-4">Revenue by County</h3>
+          {byCounty.length === 0
+            ? <p className="text-[13px]" style={{color:"#9b9589"}}>No county data yet.</p>
+            : (
+              <div className="space-y-3">
+                {byCounty.map((row, i) => {
+                  const max = Number(byCounty[0].revenue_kes) || 1;
+                  const pct = Math.round((Number(row.revenue_kes) / max) * 100);
+                  return (
+                    <div key={row.county}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[12px] font-[600]">{i+1}. {row.county}</span>
+                        <span className="text-[12px]" style={{color:"#6f6a62"}}>{kes(row.revenue_kes)} · {row.orders} orders</span>
+                      </div>
+                      <div className="h-1.5 rounded-full" style={{ background:"#f0ebe2" }}>
+                        <div className="h-1.5 rounded-full" style={{ width:`${pct}%`, background:"#B84A32" }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          }
+        </div>
+      </div>
+
+      {/* ── Top Products ── */}
+      <div className="bg-white rounded-[16px] p-6" style={{ border:"1px solid #ebe2d2" }}>
+        <h3 className="font-[700] text-[14px] mb-4">🔥 Top Selling Products <span className="font-[400] text-[12px]" style={{color:"#9b9589"}}>(last 90 days)</span></h3>
+        {topProducts.length === 0
+          ? <p className="text-[13px]" style={{color:"#9b9589"}}>No sales data yet — orders will appear here once placed.</p>
+          : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-[12px]">
+                <thead>
+                  <tr style={{borderBottom:"1px solid #ebe2d2"}}>
+                    <th className="text-left pb-2 font-[700]" style={{color:"#9b9589"}}>#</th>
+                    <th className="text-left pb-2 font-[700]" style={{color:"#9b9589"}}>Product</th>
+                    <th className="text-right pb-2 font-[700]" style={{color:"#9b9589"}}>Units</th>
+                    <th className="text-right pb-2 font-[700]" style={{color:"#9b9589"}}>Orders</th>
+                    <th className="text-right pb-2 font-[700]" style={{color:"#9b9589"}}>Revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topProducts.map((p, i) => (
+                    <tr key={p.slug} style={{borderBottom:"1px solid #f5f0e8"}}>
+                      <td className="py-2.5 pr-3 font-[700]" style={{color:"#9b9589"}}>{i+1}</td>
+                      <td className="py-2.5">
+                        <div className="flex items-center gap-2">
+                          <img src={p.image_url} alt={p.name} className="w-8 h-8 rounded-[6px] object-cover bg-[#f5f0e8]" />
+                          <div>
+                            <div className="font-[600]">{p.name}</div>
+                            <div style={{color:"#9b9589"}}>{p.category}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-2.5 text-right font-[600]">{Number(p.units_sold).toLocaleString()}</td>
+                      <td className="py-2.5 text-right" style={{color:"#6f6a62"}}>{Number(p.order_count).toLocaleString()}</td>
+                      <td className="py-2.5 text-right font-[700]" style={{color:"#B84A32"}}>{kes(p.revenue_kes)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
+      </div>
+
+      {/* ── Slow Movers ── */}
+      <div className="bg-white rounded-[16px] p-6" style={{ border:"1px solid #ebe2d2" }}>
+        <h3 className="font-[700] text-[14px] mb-1">🐌 Slow / Dead Stock <span className="font-[400] text-[12px]" style={{color:"#9b9589"}}>(no orders in 60+ days)</span></h3>
+        <p className="text-[12px] mb-4" style={{color:"#9b9589"}}>Consider running promotions or discounts on these items.</p>
+        {slowMovers.length === 0
+          ? <p className="text-[13px]" style={{color:"#16a34a"}}>✓ All products have recent orders — great!</p>
+          : (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {slowMovers.map(p => (
+                <div key={p.slug} className="flex items-center gap-3 p-3 rounded-[12px]" style={{background:"#fff8f5", border:"1px solid #f5c8be"}}>
+                  <img src={p.image_url} alt={p.name} className="w-10 h-10 rounded-[8px] object-cover flex-shrink-0 bg-[#f5f0e8]" />
+                  <div className="min-w-0">
+                    <div className="font-[600] text-[12px] truncate">{p.name}</div>
+                    <div className="text-[11px]" style={{color:"#9b9589"}}>{p.category}</div>
+                    <div className="text-[11px] font-[600]" style={{color:"#a43a25"}}>
+                      Last: {fmt(p.last_ordered)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        }
+      </div>
+
+      {/* ── Recent Orders ── */}
+      <div className="bg-white rounded-[16px] p-6" style={{ border:"1px solid #ebe2d2" }}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-[700] text-[14px]">Recent Orders</h3>
+          <span className="text-[11px]" style={{color:"#9b9589"}}>Latest 10</span>
+        </div>
+        {recentOrders.length === 0
+          ? <p className="text-[13px]" style={{color:"#9b9589"}}>No orders yet.</p>
+          : (
+            <div className="space-y-2">
+              {recentOrders.map(o => (
+                <div key={o.id} className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-[12px]" style={{background:"#fafaf8", border:"1px solid #ebe2d2"}}>
+                  <StatusBadge s={o.status} />
+                  <div className="flex-1 min-w-0">
+                    <span className="font-[600] text-[13px]">{o.name}</span>
+                    <span className="text-[12px] ml-2" style={{color:"#6f6a62"}}>{o.county}{o.town ? `, ${o.town}` : ""}</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-[12px]">
+                    {o.mpesa_ref
+                      ? <span className="font-mono px-2 py-0.5 rounded-[6px]" style={{background:"#f0fdf4",color:"#16a34a",border:"1px solid #bbf7d0"}}>{o.mpesa_ref}</span>
+                      : <span className="font-mono px-2 py-0.5 rounded-[6px]" style={{background:"#fefce8",color:"#a16207",border:"1px solid #fde68a"}}>no ref</span>
+                    }
+                    <span className="font-[700]" style={{color:"#B84A32"}}>{kes(o.total_kes)}</span>
+                    <span style={{color:"#9b9589"}}>{timeAgo(o.created_at)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        }
+      </div>
     </div>
   );
 }
@@ -720,14 +983,8 @@ function RoomsTab({ showToast }: { showToast: (m:string)=>void }) {
               label="Wall mask polygon"
               hint='Space-separated x,y pairs as 0-1 fractions. Example: "0,0.08 1,0.08 1,0.65 0,0.65"'
             >
-              <textarea className={inp + " font-mono text-[12px] resize-none"} rows={3}
-                value={draft.wall_mask}
-                onChange={e=>setDraft(d=>({...d,wall_mask:e.target.value}))}
-                placeholder="0,0.08 1,0.08 1,0.65 0,0.65" />
+              <input className={inp} value={draft.wall_mask} onChange={e=>setDraft(d=>({...d,wall_mask:e.target.value}))} placeholder="0,0.08 1,0.08 1,0.65 0,0.65" />
             </Field>
-            <div className="p-3 rounded-[10px] text-[12px]" style={{ background:"#f5f0e8", color:"#6f6a62" }}>
-              <strong style={{ color:"#2B2B2E" }}>Tip:</strong> x=0 is left edge, x=1 is right. y=0 is top, y=1 is bottom.
-            </div>
             <div className="flex gap-2 pt-2">
               <Btn variant="outline" onClick={closeModal}>Cancel</Btn>
               <Btn onClick={save} disabled={saving||!draft.name||!draft.photo_url}>
@@ -740,7 +997,7 @@ function RoomsTab({ showToast }: { showToast: (m:string)=>void }) {
 
       {confirm && (
         <Modal title="Delete room?" onClose={()=>setConfirm(null)}>
-          <p className="text-[13px] mb-5" style={{ color:"#6f6a62" }}>This room will be removed from the visualizer.</p>
+          <p className="text-[13px] mb-5" style={{ color:"#6f6a62" }}>This will permanently delete the room from the visualizer.</p>
           <div className="flex gap-2">
             <Btn variant="outline" onClick={()=>setConfirm(null)}>Cancel</Btn>
             <Btn variant="danger" onClick={()=>del(confirm!)}>Delete</Btn>
@@ -757,8 +1014,10 @@ function RoomsTab({ showToast }: { showToast: (m:string)=>void }) {
 function OrdersTab({ showToast }: { showToast: (m:string)=>void }) {
   const [orders,  setOrders]  = useState<AdminOrder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [detail,  setDetail]  = useState<AdminOrder|null>(null);
-  const [updatingId, setUpdatingId] = useState<string|null>(null);
+  const [viewing, setViewing] = useState<AdminOrder|null>(null);
+  const [saving,  setSaving]  = useState(false);
+  const [search,  setSearch]  = useState("");
+  const [filterStatus, setFilterStatus] = useState("all");
 
   const load = useCallback(async () => {
     try { setOrders(await api("/api/admin/orders")); }
@@ -769,122 +1028,116 @@ function OrdersTab({ showToast }: { showToast: (m:string)=>void }) {
   useEffect(() => { load(); }, [load]);
 
   const updateStatus = async (id: string, status: string) => {
-    setUpdatingId(id);
+    setSaving(true);
     try {
-      const row = await api("/api/admin/orders", { method:"PUT", body: JSON.stringify({ id, status }) });
-      setOrders(prev=>prev.map(o=>o.id===id?{...o,status:row.status}:o));
-      if (detail?.id===id) setDetail(d=>d?{...d,status:row.status}:d);
-      showToast(`✓ Status → ${status}`);
+      await api("/api/admin/orders", { method:"PUT", body: JSON.stringify({ id, status }) });
+      setOrders(prev => prev.map(o => o.id===id ? {...o, status} : o));
+      if (viewing?.id===id) setViewing(prev => prev ? {...prev, status} : null);
+      showToast(`✓ Status updated to ${status}`);
     } catch (e) { showToast(`Error: ${e}`); }
-    finally { setUpdatingId(null); }
+    finally { setSaving(false); }
   };
 
-  if (loading) return <Spinner />;
+  const filtered = orders
+    .filter(o => filterStatus==="all" || o.status===filterStatus)
+    .filter(o => !search || o.name.toLowerCase().includes(search.toLowerCase())
+      || o.email?.toLowerCase().includes(search.toLowerCase())
+      || o.phone?.includes(search)
+      || o.mpesa_ref?.toLowerCase().includes(search.toLowerCase()));
 
-  if (orders.length===0) return (
-    <div className="text-center py-24" style={{ color:"#9b9589" }}>
-      <div className="text-5xl mb-4">📦</div>
-      <div className="font-[600] text-[16px]" style={{ color:"#2B2B2E" }}>No orders yet</div>
-      <div className="text-[13px] mt-1">Orders will appear here once customers check out.</div>
-    </div>
-  );
+  if (loading) return <Spinner />;
 
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
           <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>Orders</h2>
-          <p className="text-[13px] mt-0.5" style={{ color:"#6f6a62" }}>{orders.length} orders total</p>
+          <p className="text-[13px] mt-0.5" style={{ color:"#6f6a62" }}>{orders.length} total orders</p>
         </div>
         <Btn variant="outline" onClick={load}>↻ Refresh</Btn>
       </div>
 
-      <div className="bg-white rounded-[16px] overflow-hidden" style={{ border:"1px solid #ebe2d2" }}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr style={{ borderBottom:"1px solid #ebe2d2", background:"#faf7f2" }}>
-                {["Date","Customer","Phone","Location","Total","Status",""].map(h=>(
-                  <th key={h} className="text-left px-4 py-3 text-[11px] font-[700] uppercase tracking-wide" style={{ color:"#9b9589" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {orders.map((o,i)=>(
-                <tr key={o.id} style={{ borderBottom: i<orders.length-1 ? "1px solid #f0ebe2" : undefined }}>
-                  <td className="px-4 py-3 whitespace-nowrap" style={{ color:"#6f6a62" }}>
-                    {new Date(o.created_at).toLocaleDateString("en-KE",{day:"2-digit",month:"short"})}
-                  </td>
-                  <td className="px-4 py-3 font-[600]">{o.name}</td>
-                  <td className="px-4 py-3 font-mono" style={{ color:"#6f6a62" }}>{o.phone}</td>
-                  <td className="px-4 py-3" style={{ color:"#6f6a62" }}>{o.town}, {o.county}</td>
-                  <td className="px-4 py-3 font-[700]" style={{ color:"#B84A32" }}>{kes(o.total_kes)}</td>
-                  <td className="px-4 py-3">
-                    <select value={o.status} disabled={updatingId===o.id}
-                      onChange={e=>updateStatus(o.id, e.target.value)}
-                      className="text-[11px] font-[600] rounded-full px-2 py-1 border-0 cursor-pointer focus:outline-none"
-                      style={{ background:"transparent" }}>
-                      {STATUSES.map(s=><option key={s}>{s}</option>)}
-                    </select>
-                    <StatusBadge s={o.status} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <button onClick={()=>setDetail(o)} className="text-[11px] font-[600] hover:underline" style={{ color:"#B84A32" }}>Details</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <div className="flex flex-wrap gap-2 mb-6">
+        <input className={inp + " max-w-[220px]"} placeholder="Search name, email, M-Pesa ref…" value={search} onChange={e=>setSearch(e.target.value)} />
+        <select className={sel + " w-auto"} value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}>
+          <option value="all">All statuses</option>
+          {STATUSES.map(s=><option key={s}>{s}</option>)}
+        </select>
       </div>
 
-      {detail && (
-        <Modal title={`Order - ${detail.name}`} onClose={()=>setDetail(null)} wide>
-          <div className="space-y-4 text-[13px]">
-            <div className="grid sm:grid-cols-2 gap-3">
-              {[
-                ["Name", detail.name], ["Email", detail.email], ["Phone", detail.phone],
-                ["Location", `${detail.town}, ${detail.county}`],
-                ["M-Pesa ref", detail.mpesa_ref||"-"],
-                ["Date", new Date(detail.created_at).toLocaleString("en-KE")],
-              ].map(([k,v])=>(
-                <div key={k} className="p-3 rounded-[10px]" style={{ background:"#f5f0e8" }}>
-                  <div className="text-[11px] font-[700] uppercase tracking-wide mb-1" style={{ color:"#9b9589" }}>{k}</div>
-                  <div className="font-[600]">{v}</div>
+      <div className="space-y-2">
+        {filtered.map(o => (
+          <div key={o.id} className="bg-white rounded-[14px] p-4 flex flex-wrap items-center gap-3 cursor-pointer hover:border-[#B84A32] transition"
+            style={{ border:"1px solid #ebe2d2" }} onClick={()=>setViewing(o)}>
+            <StatusBadge s={o.status} />
+            <div className="flex-1 min-w-[160px]">
+              <span className="font-[600] text-[13px]">{o.name}</span>
+              <span className="text-[12px] ml-2" style={{color:"#6f6a62"}}>{o.county}{o.town ? `, ${o.town}` : ""}</span>
+            </div>
+            <div className="flex items-center gap-3 text-[12px]">
+              {o.mpesa_ref
+                ? <span className="font-mono px-2 py-0.5 rounded-[6px]" style={{background:"#f0fdf4",color:"#16a34a",border:"1px solid #bbf7d0"}}>{o.mpesa_ref}</span>
+                : <span className="text-[11px]" style={{color:"#9b9589"}}>no M-Pesa ref</span>
+              }
+              <span className="font-[700]" style={{color:"#B84A32"}}>{kes(o.total_kes)}</span>
+              <span style={{color:"#9b9589"}}>{new Date(o.created_at).toLocaleDateString("en-KE",{day:"numeric",month:"short",year:"2-digit"})}</span>
+            </div>
+          </div>
+        ))}
+        {filtered.length===0 && <p className="text-[13px] py-8 text-center" style={{color:"#9b9589"}}>No orders match your filters.</p>}
+      </div>
+
+      {viewing && (
+        <Modal title={`Order — ${viewing.name}`} onClose={()=>setViewing(null)} wide>
+          <div className="space-y-5">
+            <div className="grid grid-cols-2 gap-3 text-[13px]">
+              {([
+                ["Name", viewing.name],
+                ["Email", viewing.email],
+                ["Phone", viewing.phone],
+                ["Location", [viewing.town, viewing.county, "Kenya"].filter(Boolean).join(", ")],
+                ["M-Pesa Ref", viewing.mpesa_ref || "—"],
+                ["Date", new Date(viewing.created_at).toLocaleString("en-KE")],
+              ] as [string,string][]).map(([label, val]) => (
+                <div key={label} className="p-3 rounded-[10px]" style={{background:"#f8f4ef"}}>
+                  <div className="text-[10px] font-[700] uppercase tracking-wide mb-1" style={{color:"#9b9589"}}>{label}</div>
+                  <div className="font-[500]" style={{color: label==="M-Pesa Ref" && viewing.mpesa_ref ? "#16a34a" : "#2B2B2E"}}>{val}</div>
                 </div>
               ))}
             </div>
+
             <div>
-              <div className="text-[11px] font-[700] uppercase tracking-wide mb-2" style={{ color:"#9b9589" }}>Items</div>
-              {detail.items.length===0 ? <p style={{ color:"#9b9589" }}>No items</p> : (
-                <div className="space-y-2">
-                  {detail.items.map((item,i)=>(
-                    <div key={i} className="flex items-center gap-3 p-3 rounded-[10px]" style={{ background:"#f5f0e8" }}>
-                      <div className="w-5 h-5 rounded-full border-2 flex-shrink-0" style={{ background:item.colour_hex, borderColor:"#e3d5bc" }} />
-                      <div className="flex-1">
-                        <span className="font-[600]">{item.product_slug}</span>
-                        <span style={{ color:"#6f6a62" }}> · {item.colour_name} · {item.size} · {item.finish} × {item.quantity}</span>
-                      </div>
-                      <span className="font-[700]" style={{ color:"#B84A32" }}>{kes(item.unit_kes * item.quantity)}</span>
+              <div className="text-[11px] font-[700] uppercase tracking-wide mb-3" style={{color:"#9b9589"}}>Items</div>
+              <div className="space-y-2">
+                {viewing.items.map((item, i) => (
+                  <div key={i} className="flex items-center gap-3 p-3 rounded-[10px]" style={{background:"#fafaf8",border:"1px solid #ebe2d2"}}>
+                    <div className="w-6 h-6 rounded-full flex-shrink-0 border-2 border-white shadow" style={{background: item.colour_hex}} />
+                    <div className="flex-1 text-[12px]">
+                      <span className="font-[600]">{item.product_slug}</span>
+                      <span className="ml-1" style={{color:"#6f6a62"}}>· {item.colour_name} · {item.size} · {item.finish} × {item.quantity}</span>
                     </div>
-                  ))}
-                </div>
-              )}
+                    <span className="font-[700] text-[13px]" style={{color:"#B84A32"}}>{kes(item.unit_kes * item.quantity)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between items-center mt-3 pt-3" style={{borderTop:"1px solid #ebe2d2"}}>
+                <span className="font-[700]">Total</span>
+                <span className="font-[700] text-[16px]" style={{color:"#B84A32"}}>{kes(viewing.total_kes)}</span>
+              </div>
             </div>
-            <div className="flex justify-between items-center pt-2 border-t" style={{ borderColor:"#ebe2d2" }}>
-              <span className="font-[700] text-[15px]">Total</span>
-              <span className="font-[700] text-[17px]" style={{ color:"#B84A32" }}>{kes(detail.total_kes)}</span>
-            </div>
+
             <div>
-              <div className="text-[11px] font-[700] uppercase tracking-wide mb-2" style={{ color:"#9b9589" }}>Update status</div>
+              <div className="text-[11px] font-[700] uppercase tracking-wide mb-2" style={{color:"#9b9589"}}>Update Status</div>
               <div className="flex flex-wrap gap-2">
-                {STATUSES.map(s=>(
-                  <button key={s} onClick={()=>updateStatus(detail.id,s)}
-                    disabled={s===detail.status||updatingId===detail.id}
-                    className="px-3 py-1.5 rounded-full text-[12px] font-[600] border transition disabled:opacity-40"
-                    style={{ borderColor: s===detail.status?"#B84A32":"#d8ccb8", background: s===detail.status?"#B84A32":"white", color: s===detail.status?"white":"#2B2B2E" }}>
-                    {s}
-                  </button>
+                {STATUSES.map(s => (
+                  <button key={s} disabled={saving || viewing.status===s}
+                    onClick={() => updateStatus(viewing.id, s)}
+                    className="px-3 py-1.5 rounded-full text-[12px] font-[600] border transition disabled:opacity-50"
+                    style={{
+                      background: viewing.status===s ? statusBg(s) : "white",
+                      color: viewing.status===s ? statusFg(s) : "#6f6a62",
+                      borderColor: viewing.status===s ? statusFg(s)+"40" : "#d8ccb8",
+                    }}>{s}</button>
                 ))}
               </div>
             </div>
@@ -895,20 +1148,29 @@ function OrdersTab({ showToast }: { showToast: (m:string)=>void }) {
   );
 }
 
-/* ════════════════════════════════════════════════
-   DELIVERY RATES TAB
-════════════════════════════════════════════════ */
-const blankRate = (): Omit<DeliveryRate, "id" | "updated_at"> => ({ county: "", town: null, rate_kes: 0 });
+function statusBg(s: string) {
+  const m: Record<string,string> = { pending:"#fefce8",paid:"#f0fdf4",processing:"#eff6ff",shipped:"#faf5ff",delivered:"#ecfdf5",cancelled:"#fff1f2" };
+  return m[s] ?? "#f5f5f5";
+}
+function statusFg(s: string) {
+  const m: Record<string,string> = { pending:"#a16207",paid:"#16a34a",processing:"#2563eb",shipped:"#7c3aed",delivered:"#059669",cancelled:"#dc2626" };
+  return m[s] ?? "#6b7280";
+}
 
-function DeliveryTab({ showToast }: { showToast: (m: string) => void }) {
+/* ════════════════════════════════════════════════
+   DELIVERY TAB
+════════════════════════════════════════════════ */
+type DeliveryDraft = { county: string; town: string; rate_kes: number };
+const blankRate = (): DeliveryDraft => ({ county: "", town: "", rate_kes: 0 });
+
+function DeliveryTab({ showToast }: { showToast: (m:string)=>void }) {
   const [rates,   setRates]   = useState<DeliveryRate[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<DeliveryRate | null>(null);
+  const [editing, setEditing] = useState<DeliveryRate|null>(null);
   const [adding,  setAdding]  = useState(false);
-  const [draft,   setDraft]   = useState<Omit<DeliveryRate, "id" | "updated_at">>(blankRate());
+  const [draft,   setDraft]   = useState<DeliveryDraft>(blankRate());
   const [saving,  setSaving]  = useState(false);
-  const [confirm, setConfirm] = useState<string | null>(null);
-  const [search,  setSearch]  = useState("");
+  const [confirm, setConfirm] = useState<string|null>(null);
 
   const load = useCallback(async () => {
     try { setRates(await api("/api/admin/delivery-rates")); }
@@ -920,23 +1182,23 @@ function DeliveryTab({ showToast }: { showToast: (m: string) => void }) {
 
   const openEdit = (r: DeliveryRate) => {
     setEditing(r);
-    setDraft({ county: r.county, town: r.town, rate_kes: r.rate_kes });
+    setDraft({ county: r.county, town: r.town ?? "", rate_kes: r.rate_kes });
   };
-  const openAdd    = () => { setAdding(true); setDraft(blankRate()); };
+  const openAdd  = () => { setAdding(true); setDraft(blankRate()); };
   const closeModal = () => { setEditing(null); setAdding(false); };
 
   const save = async () => {
     setSaving(true);
     try {
-      const body = { ...draft, town: draft.town?.trim() || null };
+      const body = { ...draft, town: draft.town.trim() || null };
       if (adding) {
-        const row = await api("/api/admin/delivery-rates", { method: "POST", body: JSON.stringify(body) });
+        const row = await api("/api/admin/delivery-rates", { method:"POST", body: JSON.stringify(body) });
         setRates(prev => [...prev, row]);
         showToast(`✓ Added ${row.county}${row.town ? ` / ${row.town}` : ""}`);
       } else if (editing) {
-        const row = await api("/api/admin/delivery-rates", { method: "PUT", body: JSON.stringify({ id: editing.id, ...body }) });
-        setRates(prev => prev.map(r => r.id === row.id ? row : r));
-        showToast(`✓ Saved ${row.county}${row.town ? ` / ${row.town}` : ""}`);
+        const row = await api("/api/admin/delivery-rates", { method:"PUT", body: JSON.stringify({ id: editing.id, ...body }) });
+        setRates(prev => prev.map(r => r.id===row.id ? row : r));
+        showToast(`✓ Updated ${row.county}`);
       }
       closeModal();
     } catch (e) { showToast(`Error: ${e}`); }
@@ -945,21 +1207,16 @@ function DeliveryTab({ showToast }: { showToast: (m: string) => void }) {
 
   const del = async (id: string) => {
     try {
-      await api("/api/admin/delivery-rates", { method: "DELETE", body: JSON.stringify({ id }) });
-      setRates(prev => prev.filter(r => r.id !== id));
+      await api("/api/admin/delivery-rates", { method:"DELETE", body: JSON.stringify({ id }) });
+      setRates(prev => prev.filter(r => r.id!==id));
       showToast("✓ Rate deleted");
     } catch (e) { showToast(`Error: ${e}`); }
     setConfirm(null);
   };
 
-  // Group by county for display
-  const filtered = rates.filter(r =>
-    !search ||
-    r.county.toLowerCase().includes(search.toLowerCase()) ||
-    (r.town ?? "").toLowerCase().includes(search.toLowerCase())
-  );
-
-  const counties = [...new Set(filtered.map(r => r.county))].sort();
+  const byCounty = rates.reduce<Record<string, DeliveryRate[]>>((acc, r) => {
+    (acc[r.county] ??= []).push(r); return acc;
+  }, {});
 
   if (loading) return <Spinner />;
 
@@ -967,99 +1224,71 @@ function DeliveryTab({ showToast }: { showToast: (m: string) => void }) {
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
-          <h2 style={{ fontFamily: '"Playfair Display",Georgia,serif', fontSize: 24, fontWeight: 600 }}>Delivery Rates</h2>
-          <p className="text-[13px] mt-0.5" style={{ color: "#6f6a62" }}>
-            {rates.length} rate{rates.length !== 1 ? "s" : ""} · county-level defaults + optional town overrides
-          </p>
+          <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>Delivery Rates</h2>
+          <p className="text-[13px] mt-0.5" style={{ color:"#6f6a62" }}>{rates.length} rates · county-level defaults + town overrides</p>
         </div>
         <Btn onClick={openAdd}>+ Add rate</Btn>
       </div>
 
-      <div className="mb-5">
-        <input className={inp + " max-w-[260px]"} placeholder="Search county or town…" value={search} onChange={e => setSearch(e.target.value)} />
-      </div>
-
-      {rates.length === 0 ? (
-        <div className="text-center py-20" style={{ color: "#9b9589" }}>
-          <div className="text-5xl mb-4">🚚</div>
-          <div className="font-[600] text-[15px]" style={{ color: "#2B2B2E" }}>No rates configured</div>
-          <p className="text-[13px] mt-1 mb-4">Add a county to set delivery pricing. Run the migration SQL first if you haven't already.</p>
+      {Object.keys(byCounty).length === 0 && (
+        <div className="text-center py-16">
+          <p className="text-[15px] font-[600] mb-2">No delivery rates yet</p>
+          <p className="text-[13px] mb-4" style={{color:"#9b9589"}}>Add a county rate to get started. Town-level rates override the county default.</p>
           <Btn onClick={openAdd}>+ Add first rate</Btn>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {counties.map(county => {
-            const rows = filtered.filter(r => r.county === county).sort((a, b) => (a.town ?? "") < (b.town ?? "") ? -1 : 1);
-            return (
-              <div key={county} className="bg-white rounded-[16px] overflow-hidden" style={{ border: "1px solid #ebe2d2" }}>
-                <div className="px-5 py-3 border-b flex items-center justify-between" style={{ borderColor: "#ebe2d2", background: "#faf7f2" }}>
-                  <span className="font-[700] text-[14px]">{county}</span>
-                  <Btn size="sm" variant="outline" onClick={() => { setAdding(true); setDraft({ county, town: "", rate_kes: 0 }); }}>+ town</Btn>
-                </div>
-                <table className="w-full text-[13px]">
-                  <thead>
-                    <tr style={{ borderBottom: "1px solid #f0ebe2", background: "#fdf9f4" }}>
-                      <th className="text-left px-5 py-2 text-[11px] font-[700] uppercase tracking-wide" style={{ color: "#9b9589" }}>Town / Scope</th>
-                      <th className="text-left px-5 py-2 text-[11px] font-[700] uppercase tracking-wide" style={{ color: "#9b9589" }}>Rate (KES)</th>
-                      <th className="text-left px-5 py-2 text-[11px] font-[700] uppercase tracking-wide" style={{ color: "#9b9589" }}>Updated</th>
-                      <th className="px-5 py-2"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((r, i) => (
-                      <tr key={r.id} style={{ borderBottom: i < rows.length - 1 ? "1px solid #f5f0e8" : undefined }}>
-                        <td className="px-5 py-3">
-                          {r.town
-                            ? <span className="font-[500]">{r.town}</span>
-                            : <span className="text-[11px] px-2 py-0.5 rounded-full font-[600]" style={{ background: "#f5ede3", color: "#B84A32" }}>County default</span>
-                          }
-                        </td>
-                        <td className="px-5 py-3 font-[700]" style={{ color: r.rate_kes === 0 ? "#15803d" : "#2B2B2E" }}>
-                          {r.rate_kes === 0 ? "Free" : kes(r.rate_kes)}
-                        </td>
-                        <td className="px-5 py-3 text-[11px]" style={{ color: "#9b9589" }}>
-                          {new Date(r.updated_at).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" })}
-                        </td>
-                        <td className="px-5 py-3">
-                          <div className="flex gap-1">
-                            <Btn size="sm" variant="outline" onClick={() => openEdit(r)}>Edit</Btn>
-                            <Btn size="sm" variant="danger" onClick={() => setConfirm(r.id)}>✕</Btn>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            );
-          })}
         </div>
       )}
 
-      {(editing || adding) && (
-        <Modal title={adding ? "Add delivery rate" : `Edit rate — ${editing!.county}${editing!.town ? ` / ${editing!.town}` : " (default)"}`} onClose={closeModal}>
-          <div className="space-y-4">
-            <div className="p-3 rounded-[10px] text-[12px]" style={{ background: "#f5f0e8", color: "#6f6a62" }}>
-              Leave <strong style={{ color: "#2B2B2E" }}>Town</strong> blank to set a county-level default.
-              Town-specific rates override the county default when a customer enters that town at checkout.
+      <div className="space-y-6">
+        {Object.entries(byCounty).map(([county, countyRates]) => (
+          <div key={county} className="bg-white rounded-[16px] overflow-hidden" style={{ border:"1px solid #ebe2d2" }}>
+            <div className="px-5 py-3 flex items-center justify-between" style={{background:"#f8f4ef", borderBottom:"1px solid #ebe2d2"}}>
+              <h3 className="font-[700] text-[14px]">{county}</h3>
+              <span className="text-[11px]" style={{color:"#9b9589"}}>{countyRates.length} rate{countyRates.length>1?"s":""}</span>
             </div>
-            <Field label="County *">
-              <input className={inp} value={draft.county} onChange={e => setDraft(d => ({ ...d, county: e.target.value }))} placeholder="e.g. Nairobi" />
+            <table className="w-full text-[13px]">
+              <tbody>
+                {countyRates.map(r => (
+                  <tr key={r.id} style={{borderBottom:"1px solid #f5f0e8"}}>
+                    <td className="px-5 py-3">
+                      {r.town
+                        ? <span>{r.town}</span>
+                        : <span className="text-[11px] px-2 py-0.5 rounded-full font-[600]" style={{background:"#f5ede3",color:"#B84A32"}}>County default</span>
+                      }
+                    </td>
+                    <td className="px-5 py-3 font-[700]" style={{color: r.rate_kes===0 ? "#16a34a" : "#2B2B2E"}}>
+                      {r.rate_kes === 0 ? "Free" : kes(r.rate_kes)}
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      <div className="flex gap-1 justify-end">
+                        <Btn size="sm" variant="outline" onClick={()=>openEdit(r)}>Edit</Btn>
+                        <Btn size="sm" variant="danger" onClick={()=>setConfirm(r.id)}>✕</Btn>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+
+      {(editing||adding) && (
+        <Modal title={adding ? "Add delivery rate" : `Edit — ${editing!.county}${editing!.town ? ` / ${editing!.town}` : ""}`} onClose={closeModal}>
+          <div className="space-y-4">
+            <Field label="County" hint="e.g. Nairobi, Kiambu, Mombasa">
+              <input className={inp} value={draft.county} onChange={e=>setDraft(d=>({...d,county:e.target.value}))} placeholder="Nairobi" />
             </Field>
-            <Field label="Town (optional)" hint="Leave blank for county-level default">
-              <input className={inp} value={draft.town ?? ""} onChange={e => setDraft(d => ({ ...d, town: e.target.value || null }))} placeholder="e.g. Westlands" />
+            <Field label="Town (optional)" hint="Leave blank to set a county-wide default rate">
+              <input className={inp} value={draft.town} onChange={e=>setDraft(d=>({...d,town:e.target.value}))} placeholder="Westlands" />
             </Field>
-            <Field label="Delivery rate (KES)" hint="Set 0 for free delivery">
+            <Field label="Rate (KES)" hint="Enter 0 for free delivery">
               <input type="number" className={inp} value={draft.rate_kes}
-                onChange={e => setDraft(d => ({ ...d, rate_kes: parseInt(e.target.value) || 0 }))}
+                onChange={e=>setDraft(d=>({...d,rate_kes:parseInt(e.target.value)||0}))}
                 min={0} step={50} />
             </Field>
-            {draft.rate_kes === 0 && (
-              <div className="text-[12px] px-3 py-2 rounded-[8px] font-[600]" style={{ background: "#f0fdf4", color: "#15803d" }}>✓ Free delivery for this area</div>
-            )}
             <div className="flex gap-2 pt-2">
               <Btn variant="outline" onClick={closeModal}>Cancel</Btn>
-              <Btn onClick={save} disabled={saving || !draft.county}>
+              <Btn onClick={save} disabled={saving||!draft.county}>
                 {saving ? "Saving…" : adding ? "Add rate" : "Save changes"}
               </Btn>
             </div>
@@ -1068,11 +1297,11 @@ function DeliveryTab({ showToast }: { showToast: (m: string) => void }) {
       )}
 
       {confirm && (
-        <Modal title="Delete rate?" onClose={() => setConfirm(null)}>
-          <p className="text-[13px] mb-5" style={{ color: "#6f6a62" }}>This delivery rate will be removed. Orders in this area will fall back to free delivery (KES 0).</p>
+        <Modal title="Delete rate?" onClose={()=>setConfirm(null)}>
+          <p className="text-[13px] mb-5" style={{color:"#6f6a62"}}>This delivery rate will be removed. Orders to this area will use the county default or show no rate.</p>
           <div className="flex gap-2">
-            <Btn variant="outline" onClick={() => setConfirm(null)}>Cancel</Btn>
-            <Btn variant="danger" onClick={() => del(confirm!)}>Delete</Btn>
+            <Btn variant="outline" onClick={()=>setConfirm(null)}>Cancel</Btn>
+            <Btn variant="danger" onClick={()=>del(confirm!)}>Delete</Btn>
           </div>
         </Modal>
       )}

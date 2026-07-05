@@ -21,7 +21,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
 
-  // Vercel populates req.query with the [id] path segment automatically.
   const checkoutRequestId = req.query.id as string | undefined;
   if (!checkoutRequestId)
     return res.status(400).json({ error: "checkoutRequestId (path param) is required" });
@@ -41,8 +40,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (!payment) return res.status(404).json({ error: "Payment not found" });
 
+  // Normalize status to lowercase so frontend can reliably check === "success"
+  const normalizedStatus = (payment.status as string).toLowerCase();
+
   return res.status(200).json({
-    status:        payment.status,
+    status:        normalizedStatus,
     receipt:       payment.mpesa_receipt ?? null,
     failureReason: payment.failure_reason ?? null,
     amountKes:     payment.amount_kes,

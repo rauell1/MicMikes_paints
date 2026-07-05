@@ -17,7 +17,6 @@ function resultCodeToStatus(code: number): string {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Safaricom only POSTs callbacks; any other method gets a polite 200 (don't reveal 405)
   if (req.method !== "POST") return res.status(200).end();
   const ack = () => res.status(200).json({ ResultCode: 0, ResultDesc: "Accepted" });
 
@@ -64,16 +63,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const receipt = get("MpesaReceiptNumber") as string | undefined;
     const callbackAmount = get("Amount") as number | undefined;
 
+    // Log amount mismatches for auditing but do NOT block the payment from succeeding.
+    // This prevents test payments (e.g. KES 1) from getting silently swallowed.
     if (callbackAmount !== undefined && Math.abs(callbackAmount - payment.amount_kes) > 1) {
-      console.error(
-        `[mpesa/callback] Amount mismatch: expected ${payment.amount_kes}, got ${callbackAmount}`
+      console.warn(
+        `[mpesa/callback] Amount mismatch (logged only): expected ${payment.amount_kes}, got ${callbackAmount}`
       );
       await sql`
         INSERT INTO order_events (order_id, event_type, payload)
         VALUES (${payment.order_id}, 'mpesa_amount_mismatch',
           ${JSON.stringify({ expected: payment.amount_kes, received: callbackAmount })}::jsonb)
       `;
-      return ack();
     }
 
     const [settled] = await sql`
@@ -89,9 +89,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     await sql`
       INSERT INTO order_events (order_id, event_type, payload)
       VALUES (${payment.order_id}, 'mpesa_success',
-        ${JSON.stringify({ receipt, checkoutRequestId: cb.CheckoutRequestID })}::jsonb)
+        ${JSON.stringify({ receipt, callbackAmount, checkoutRequestId: cb.CheckoutRequestID })}::jsonb)
     `;
-    console.log("[mpesa/callback] SUCCESS — receipt:", receipt);
+    console.log("[mpesa/callback] SUCCESS — receipt:", receipt, "amount:", callbackAmount);
   } else {
     await sql`
       UPDATE mpesa_payments

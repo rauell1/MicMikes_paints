@@ -2,24 +2,31 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { neon } from "@neondatabase/serverless";
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   /api/chat — customer-facing support + colour/product recommendation bot.
+   /api/chat - customer-facing support + colour/product recommendation bot.
 
    Provider: NVIDIA's free OpenAI-compatible API (integrate.api.nvidia.com).
    Needs env NVIDIA_API_KEY (nvapi-...). Model overridable via NVIDIA_MODEL.
 
-   Primary model  : z-ai/glm-5.2          (53B, 1M ctx, agentic + reasoning)
-   Fallback model : minimaxai/minimax-m3  (428B, 1M ctx, multimodal, tool-use)
+   Fallback chain (tries each in order until one succeeds):
+     1. z-ai/glm-5.2            (53B,  1M ctx, agentic + reasoning)
+     2. minimaxai/minimax-m3    (428B, 1M ctx, multimodal, tool-use)
+     3. moonshotai/kimi-k2.6   (vision-capable, multimodal)
 
    Read-only: grounds prices/delivery/catalogue in live DB data, and may add
    general paint/decor advice. Never places orders or takes payment.
 ───────────────────────────────────────────────────────────────────────────── */
 
-const NVIDIA_URL   = "https://integrate.api.nvidia.com/v1/chat/completions";
-const DEFAULT_MODEL  = "z-ai/glm-5.2";
-const FALLBACK_MODEL = "minimaxai/minimax-m3";
+const NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 
-const MAX_TURNS = 12;         // cap history sent upstream
-const MAX_CHARS = 1500;       // per-message cap
+// Ordered fallback chain - tried left to right until one succeeds
+const MODEL_CHAIN = [
+  "z-ai/glm-5.2",
+  "minimaxai/minimax-m3",
+  "moonshotai/kimi-k2.6",
+];
+
+const MAX_TURNS = 12;   // cap history sent upstream
+const MAX_CHARS = 1500; // per-message cap
 
 const ALLOWED_ORIGINS = [
   "https://mic-mikes-paints.vercel.app",
@@ -52,7 +59,7 @@ async function buildContext(): Promise<string> {
       FROM products p LEFT JOIN variants v ON v.product_id = p.id
       WHERE p.active = true GROUP BY p.name, p.category ORDER BY p.name`;
     if (pRows.length) {
-      products = pRows.map(p => `${p.name} (${p.category}) — KES ${p.min_kes}-${p.max_kes}`).join("\n");
+      products = pRows.map(p => `${p.name} (${p.category}) - KES ${p.min_kes}-${p.max_kes}`).join("\n");
     }
     const dRows = await sql`SELECT county, town, rate_kes FROM delivery_rates ORDER BY rate_kes LIMIT 20`;
     if (dRows.length) {
@@ -80,11 +87,11 @@ STORE FACTS
 - For anything you cannot answer, suggest WhatsApp: https://wa.me/254712345678
 
 LIVE CATALOGUE & RATES (ground all prices/colours/delivery in this):
-${context || "(catalogue temporarily unavailable — give general guidance and suggest browsing the site)"}
+${context || "(catalogue temporarily unavailable - give general guidance and suggest browsing the site)"}
 
 STYLE
 - Warm, concise, helpful. Kenyan context. Always quote prices in KES.
-- You MAY give general painting and colour/decor advice from your own knowledge, but any price, colour name, or delivery figure MUST come from the catalogue above — never invent them. If a specific colour or price is not listed, say so and point to the Colour Explorer or WhatsApp.
+- You MAY give general painting and colour/decor advice from your own knowledge, but any price, colour name, or delivery figure MUST come from the catalogue above - never invent them. If a specific colour or price is not listed, say so and point to the Colour Explorer or WhatsApp.
 - Recommend the Room Visualizer when a customer is choosing a colour.
 - Keep replies short (2-5 sentences) unless asked for detail. Use plain hyphens, not em dashes.
 - You cannot place orders or take payment; guide customers to add items to the cart and check out on the site.`;
@@ -157,14 +164,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const messages = [{ role: "system", content: systemPrompt(context) }, ...cleaned];
     const apiKey   = process.env.NVIDIA_API_KEY;
 
-    // 1. Try primary model (GLM-5.2)
-    const primary = process.env.NVIDIA_MODEL || DEFAULT_MODEL;
-    let reply = await callNvidia(primary, messages, apiKey);
+    // Build model chain: honour NVIDIA_MODEL env override as primary if set,
+    // then append the rest of the default chain (deduplicated) as fallbacks.
+    const envModel = process.env.NVIDIA_MODEL;
+    const chain = envModel
+      ? [envModel, ...MODEL_CHAIN.filter(m => m !== envModel)]
+      : MODEL_CHAIN;
 
-    // 2. Auto-fallback to MiniMax M3 if primary fails
-    if (!reply && primary !== FALLBACK_MODEL) {
-      console.warn(`[api/chat] primary (${primary}) failed — falling back to ${FALLBACK_MODEL}`);
-      reply = await callNvidia(FALLBACK_MODEL, messages, apiKey);
+    let reply: string | null = null;
+    for (const model of chain) {
+      reply = await callNvidia(model, messages, apiKey);
+      if (reply) {
+        if (model !== chain[0]) console.warn(`[api/chat] used fallback model: ${model}`);
+        break;
+      }
+      console.warn(`[api/chat] ${model} failed, trying next in chain...`);
     }
 
     if (!reply) {

@@ -2,41 +2,28 @@ import { z } from 'zod'
 
 // ===========================================
 // HELPER: Kenyan Phone Number Validation
-// Accepts:
-//   +2547XXXXXXXX  (international, 13 chars)
-//   07XXXXXXXX     (local, 10 digits)
-//   2547XXXXXXXX   (without +, 12 digits)
-// Kenyan mobile prefixes: 070x, 071x, 072x, 074x, 075x, 076x, 077x, 078x, 079x
 // ===========================================
 const KENYAN_MOBILE_PREFIXES = ['70', '71', '72', '74', '75', '76', '77', '78', '79']
 
 const validateKenyanPhone = (phone: string): boolean => {
   const digits = phone.replace(/[\s\-\(\)]/g, '')
-
-  // +2547XXXXXXXX → strip + → 2547XXXXXXXX
   const normalized = digits.startsWith('+') ? digits.slice(1) : digits
-
   if (normalized.startsWith('254')) {
-    // 2547XXXXXXXX — 12 digits
     if (normalized.length !== 12) return false
-    const prefix = normalized.slice(3, 5) // '7X'
+    const prefix = normalized.slice(3, 5)
     return prefix.startsWith('7') && KENYAN_MOBILE_PREFIXES.includes(prefix)
   } else if (normalized.startsWith('0')) {
-    // 07XXXXXXXX — 10 digits
     if (normalized.length !== 10) return false
-    const prefix = normalized.slice(1, 3) // '7X'
+    const prefix = normalized.slice(1, 3)
     return prefix.startsWith('7') && KENYAN_MOBILE_PREFIXES.includes(prefix)
   } else if (normalized.startsWith('7')) {
-    // 7XXXXXXXX — 9 digits (missing leading 0)
     if (normalized.length !== 9) return false
     const prefix = normalized.slice(0, 2)
     return KENYAN_MOBILE_PREFIXES.includes(prefix)
   }
-
   return false
 }
 
-// Normalise any valid Kenyan phone to 2547XXXXXXXX for storage
 export const normaliseKenyanPhone = (phone: string): string => {
   const digits = phone.replace(/[\s\-\(\)\+]/g, '')
   if (digits.startsWith('254')) return digits
@@ -49,103 +36,55 @@ export const normaliseKenyanPhone = (phone: string): string => {
 // ENQUIRY / CONTACT FORM SCHEMA
 // ===========================================
 export const enquiryFormSchema = z.object({
-  name: z
-    .string()
-    .min(2, 'Name must be at least 2 characters')
-    .max(100, 'Name must be less than 100 characters')
-    .regex(/^[a-zA-Z\s\-'\.]+$/, 'Name can only contain letters, spaces, hyphens, apostrophes and dots'),
-
-  email: z
-    .string()
-    .email('Please enter a valid email address')
-    .max(254, 'Email must be less than 254 characters')
-    .toLowerCase(),
-
-  phone: z
-    .string()
-    .min(9, 'Phone number is too short')
-    .max(15, 'Phone number is too long')
-    .refine(validateKenyanPhone, {
-      message: 'Please enter a valid Kenyan mobile number (e.g. 0712 345678 or +254712345678)',
-    }),
-
-  message: z
-    .string()
-    .min(10, 'Message must be at least 10 characters')
-    .max(2000, 'Message must be less than 2000 characters'),
-
-  agreedToTerms: z
-    .boolean()
-    .refine(val => val === true, 'You must agree to the terms and privacy policy'),
+  name: z.string().min(2).max(100).regex(/^[a-zA-Z\s\-'\.]+$/),
+  email: z.string().email().max(254).toLowerCase(),
+  phone: z.string().min(9).max(15).refine(validateKenyanPhone, {
+    message: 'Please enter a valid Kenyan mobile number (e.g. 0712 345678 or +254712345678)',
+  }),
+  message: z.string().min(10).max(2000),
+  agreedToTerms: z.boolean().refine(val => val === true, 'You must agree to the terms and privacy policy'),
 })
-
 export type EnquiryFormData = z.infer<typeof enquiryFormSchema>
 
 // ===========================================
 // ORDER FORM SCHEMA
 // ===========================================
 export const orderFormSchema = z.object({
-  name: z
-    .string()
-    .min(2, 'Name must be at least 2 characters')
-    .max(200, 'Name is too long'),
+  name: z.string().min(2, 'Name must be at least 2 characters').max(200),
 
-  email: z
-    .string()
-    .email('Please enter a valid email address')
-    .max(254, 'Email is too long')
-    .toLowerCase(),
+  email: z.string().email('Please enter a valid email address').max(254).toLowerCase(),
 
-  phone: z
-    .string()
-    .min(9, 'Phone number is too short')
-    .max(15, 'Phone number is too long')
+  phone: z.string().min(9, 'Phone number is too short').max(15)
     .refine(validateKenyanPhone, {
       message: 'Please enter a valid Kenyan mobile number (e.g. 0712 345678 or +254712345678)',
     }),
 
-  county: z
-    .string()
-    .min(2, 'County is required')
-    .max(200, 'County name is too long'),
+  county: z.string().min(2, 'County is required').max(200),
+  town:   z.string().min(2, 'Town is required').max(200),
+  address: z.string().min(5, 'Address is required').max(200),
 
-  town: z
-    .string()
-    .min(2, 'Town is required')
-    .max(200, 'Town name is too long'),
+  // optional extras from the checkout form
+  notes:     z.string().max(500).optional(),
+  payMethod: z.enum(['mpesa', 'card']).optional(),
 
-  address: z
-    .string()
-    .min(5, 'Address is required')
-    .max(200, 'Address is too long'),
-
-  items: z
-    .array(
-      z.object({
-        productSlug: z.string().min(1).max(100),
-        colourId:    z.string().max(100).nullable().optional(),
-        size:        z.string().min(1).max(50),
-        finish:      z.string().max(30).optional(),
-        quantity:    z.number().int().min(1).max(50),
-      })
-    )
-    .min(1, 'At least one item is required')
-    .max(30, 'Too many items in order'),
+  items: z.array(
+    z.object({
+      productSlug: z.string().min(1).max(100),
+      colourId:    z.string().max(100).nullable().optional(),
+      size:        z.string().min(1).max(50),
+      finish:      z.string().max(30).optional(),
+      quantity:    z.number().int().min(1).max(50),
+    })
+  ).min(1, 'At least one item is required').max(30),
 })
-
 export type OrderFormData = z.infer<typeof orderFormSchema>
 
 // ===========================================
 // NEWSLETTER SCHEMA
 // ===========================================
 export const newsletterSchema = z.object({
-  email: z
-    .string()
-    .email('Please enter a valid email address')
-    .max(254, 'Email must be less than 254 characters')
-    .toLowerCase(),
+  email: z.string().email().max(254).toLowerCase(),
 })
-
 export type NewsletterData = z.infer<typeof newsletterSchema>
 
 // ===========================================

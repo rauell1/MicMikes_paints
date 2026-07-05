@@ -19,11 +19,6 @@ async function trackCartEvent(payload: Record<string, unknown>) {
   } catch { /* non-critical */ }
 }
 
-/* ──────────────────────────────────────────────────────────
-   MicMikes Paints — Keekorok Edition
-   Single-page, mobile-first, production landing
-   ────────────────────────────────────────────────────────── */
-
 type ColourFamily = "Neutrals" | "Warm Earth" | "Cool Green" | "Blue" | "Red & Terracotta" | "Yellow & Gold";
 type Finish = "Matte" | "Eggshell" | "Satin" | "Semi-Gloss";
 type Size = "1L" | "4L" | "20L";
@@ -145,7 +140,7 @@ function VisualizerCanvas({ room, colour, finish }: { room: Room; colour: Colour
 }
 
 /* ── PaintedThumb ── */
-function PaintedThumb({ room }: { room: Room; colourId: string | null }) {
+function PaintedThumb({ room }: { room: Room; colourId?: string | null }) {
   return (
     <div className="w-[40px] h-[30px] rounded-[7px] overflow-hidden flex-shrink-0 border border-[#3a3a3d]">
       <img src={room.photo} alt={room.name} className="w-full h-full object-cover" loading="lazy" />
@@ -163,18 +158,19 @@ function CheckoutDialog({
   onSuccess: (meta: { invoice: string }) => void;
 }) {
   const [step, setStep] = useState<"details"|"payment"|"confirm">("details");
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
+  const [name, setName]       = useState("");
+  const [email, setEmail]     = useState("");
+  const [phone, setPhone]     = useState("");
+  const [county, setCounty]   = useState("");
+  const [town, setTown]       = useState("");
   const [address, setAddress] = useState("");
-  const [notes, setNotes] = useState("");
+  const [notes, setNotes]     = useState("");
   const [payMethod, setPayMethod] = useState<"mpesa"|"card">("mpesa");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [mpesaStatus, setMpesaStatus] = useState<"idle"|"pending"|"success"|"failed">("idle");
 
-  const invoice = `INV-${new Date().toISOString().slice(0,10).replace(/-/g,"")}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
-
-  const pollMpesaStatus = async (checkoutRequestId: string) => {
+  const pollMpesaStatus = async (checkoutRequestId: string, invoice: string) => {
     const MAX_ATTEMPTS = 10;
     const INTERVAL_MS = 4000;
     let attempts = 0;
@@ -193,16 +189,46 @@ function CheckoutDialog({
     return poll();
   };
 
+  const detailsValid = () => {
+    if (!name.trim() || !email.trim() || !phone.trim() || !county.trim() || !town.trim() || !address.trim()) {
+      setError("Please fill all required fields.");
+      return false;
+    }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      setError("Please enter a valid email address.");
+      return false;
+    }
+    setError("");
+    return true;
+  };
+
   const handleSubmit = async () => {
-    if (!name.trim() || !phone.trim() || !address.trim()) { setError("Please fill all required fields."); return; }
     setSubmitting(true); setError("");
     try {
+      // Map cart items to the shape api/orders expects
+      const items = cart.map(i => ({
+        productSlug: i.productSlug,
+        colourId:    i.colourId || null,
+        size:        i.size,
+        finish:      i.finish,
+        quantity:    i.quantity,
+      }));
+
       const res = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, phone, address, notes, payMethod, cart, subtotal, deliveryFee, total, invoice }),
+        body: JSON.stringify({ name, email, phone, county, town, address, notes, payMethod, items }),
       });
-      if (!res.ok) throw new Error("Order failed");
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: string; errors?: Record<string, string> };
+        const msg = body.errors ? Object.values(body.errors)[0] : (body.error ?? "Order failed");
+        throw new Error(String(msg));
+      }
+
+      const orderData = await res.json() as { reference?: string; orderId?: string };
+      const invoice = orderData.reference ?? `INV-${Date.now()}`;
+
       if (payMethod === "mpesa") {
         setMpesaStatus("pending");
         const mpesaRes = await fetch("/api/mpesa/stkpush", {
@@ -213,12 +239,17 @@ function CheckoutDialog({
         if (mpesaRes.ok) {
           const mpesaData = await mpesaRes.json() as { CheckoutRequestID?: string };
           const checkoutRequestId = mpesaData.CheckoutRequestID;
-          if (checkoutRequestId) { await pollMpesaStatus(checkoutRequestId); }
+          if (checkoutRequestId) { await pollMpesaStatus(checkoutRequestId, invoice); }
           else { onSuccess({ invoice }); }
         } else { setMpesaStatus("failed"); setError("Failed to initiate M-Pesa payment. Please try again."); }
-      } else { onSuccess({ invoice }); }
-    } catch { setError("Something went wrong. Please try again or call us."); }
-    finally { setSubmitting(false); }
+      } else {
+        onSuccess({ invoice });
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again or call us.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -240,6 +271,7 @@ function CheckoutDialog({
           </button>
         </div>
         <div className="overflow-y-auto flex-1 px-6 py-5 space-y-4">
+          {/* Step indicators */}
           <div className="flex gap-2 mb-2">
             {(["details","payment","confirm"] as const).map((s,i) => (
               <div key={s} className="flex items-center gap-2">
@@ -250,14 +282,21 @@ function CheckoutDialog({
               </div>
             ))}
           </div>
+
           {step === "details" && (
             <div className="space-y-3">
               <div><label className="text-[12px] font-[600] block mb-[5px]">Full name *</label><input className="input" value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Jane Wanjiku" /></div>
+              <div><label className="text-[12px] font-[600] block mb-[5px]">Email *</label><input className="input" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="jane@example.com" /></div>
               <div><label className="text-[12px] font-[600] block mb-[5px]">Phone (M-Pesa) *</label><input className="input" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="07xx xxx xxx" type="tel" /></div>
-              <div><label className="text-[12px] font-[600] block mb-[5px]">Delivery address *</label><input className="input" value={address} onChange={e=>setAddress(e.target.value)} placeholder="Street, estate, Nairobi" /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="text-[12px] font-[600] block mb-[5px]">County *</label><input className="input" value={county} onChange={e=>setCounty(e.target.value)} placeholder="e.g. Nairobi" /></div>
+                <div><label className="text-[12px] font-[600] block mb-[5px]">Town *</label><input className="input" value={town} onChange={e=>setTown(e.target.value)} placeholder="e.g. Westlands" /></div>
+              </div>
+              <div><label className="text-[12px] font-[600] block mb-[5px]">Street / Estate *</label><input className="input" value={address} onChange={e=>setAddress(e.target.value)} placeholder="Bensam Road, Apt 3A" /></div>
               <div><label className="text-[12px] font-[600] block mb-[5px]">Notes (optional)</label><textarea className="input" rows={2} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Gate colour, special instructions…" style={{ resize: "none" }} /></div>
             </div>
           )}
+
           {step === "payment" && (
             <div className="space-y-3">
               <div className="text-[13px] font-[600] mb-1">Payment method</div>
@@ -281,6 +320,7 @@ function CheckoutDialog({
               </div>
             </div>
           )}
+
           {step === "confirm" && (
             <div className="space-y-3 text-[13.5px]">
               <div className="mm-card rounded-[14px] p-4 space-y-[6px]">
@@ -295,9 +335,11 @@ function CheckoutDialog({
               </div>
               <div className="mm-card rounded-[14px] p-4 space-y-[5px]">
                 <div className="font-[600] mb-1">Delivery to</div>
-                <div>{name}</div><div className="mm-muted">{phone}</div><div className="mm-muted">{address}</div>
+                <div>{name}</div>
+                <div className="mm-muted">{phone}</div>
+                <div className="mm-muted">{town}, {county}</div>
+                <div className="mm-muted">{address}</div>
               </div>
-              <div className="text-[12px] mm-muted">Invoice: <span className="font-mono2">{invoice}</span></div>
               {mpesaStatus === "pending" && (
                 <div className="text-[13px] font-[600] px-4 py-3 rounded-[12px] text-center" style={{ background: "#f0f8ff", color: "#2B6CB0" }}>
                   ⏳ Waiting for M-Pesa confirmation on {phone}…
@@ -305,15 +347,17 @@ function CheckoutDialog({
               )}
             </div>
           )}
+
           {error && <div className="text-[13px] font-[600] px-4 py-3 rounded-[12px]" style={{ background: "#fdf0ee", color: "#B84A32" }}>{error}</div>}
         </div>
+
         <div className="px-6 py-4 border-t flex gap-3" style={{ borderColor: "#e7d9c3", background: "#fffdf8" }}>
           {step !== "details" && (
-            <button onClick={() => setStep(step==="confirm" ? "payment" : "details")} className="btn btn-ghost flex-1 py-[12px] text-[14px]">← Back</button>
+            <button onClick={() => { setError(""); setStep(step==="confirm" ? "payment" : "details"); }} className="btn btn-ghost flex-1 py-[12px] text-[14px]">← Back</button>
           )}
           {step !== "confirm" ? (
             <button onClick={() => {
-              if (step==="details") { if (!name.trim()||!phone.trim()||!address.trim()) { setError("Please fill all required fields."); return; } setError(""); setStep("payment"); }
+              if (step==="details") { if (!detailsValid()) return; setStep("payment"); }
               else { setError(""); setStep("confirm"); }
             }} className="btn btn-primary flex-1 py-[12px] text-[14.5px]">Continue →</button>
           ) : (
@@ -717,7 +761,6 @@ export default function App() {
               <p className="mm-muted mt-2">Premium Keekorok paints, primers &amp; supplies. M-Pesa checkout. Next-day Nairobi delivery.</p>
             </div>
 
-            {/* Colour selector for shop */}
             <div className="mm-card rounded-[20px] p-5 mb-6">
               <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-3">Choose Your Colour</div>
               <div className="flex flex-wrap gap-[10px] mb-4">
@@ -736,7 +779,6 @@ export default function App() {
               )}
             </div>
 
-            {/* Size + Finish selectors */}
             <div className="flex flex-wrap gap-4 mb-6">
               <div>
                 <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-2">Size</div>

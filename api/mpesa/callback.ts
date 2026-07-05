@@ -1,6 +1,28 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { neon } from "@neondatabase/serverless";
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Safaricom M-Pesa IP whitelist
+   Production IPs: https://developer.safaricom.co.ke/docs/ip-whitelisting
+   TODO: Remove the sandbox IP (196.201.214.206) before going to production.
+   In sandbox mode all callback IPs are allowed (NODE_ENV !== "production").
+───────────────────────────────────────────────────────────────────────────── */
+const SAFARICOM_IPS = new Set([
+  // Production IPs
+  "196.201.214.200","196.201.214.201","196.201.214.202","196.201.214.203",
+  "196.201.214.204","196.201.214.207","196.201.214.208","196.201.214.209",
+  "196.201.214.210","196.201.214.211","196.201.214.212","196.201.214.213",
+  "196.201.214.214","196.201.214.215","196.201.214.216","196.201.214.217",
+  "196.201.214.218","196.201.214.219","196.201.214.220","196.201.214.221",
+  "196.201.214.222","196.201.214.223",
+  // ⚠️  SANDBOX ONLY — remove this line before going live
+  "196.201.214.206",
+]);
+
+function getCallerIP(req: VercelRequest): string {
+  return (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ?? "";
+}
+
 function resultCodeToStatus(code: number): string {
   switch (code) {
     case 0:    return "SUCCESS";
@@ -19,6 +41,16 @@ function resultCodeToStatus(code: number): string {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(200).end();
   const ack = () => res.status(200).json({ ResultCode: 0, ResultDesc: "Accepted" });
+
+  /* ── IP validation: only accept callbacks from Safaricom ── */
+  if (process.env.NODE_ENV === "production") {
+    const ip = getCallerIP(req);
+    if (ip && !SAFARICOM_IPS.has(ip)) {
+      console.warn("[mpesa/callback] Blocked non-Safaricom IP:", ip);
+      return ack(); // Silent ack prevents Safaricom retry storms
+    }
+  }
+  // In sandbox: all IPs allowed (Safaricom sandbox uses dynamic IPs)
 
   if (!process.env.DATABASE_URL) {
     console.error("[mpesa/callback] DATABASE_URL not set");

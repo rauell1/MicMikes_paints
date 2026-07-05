@@ -1164,17 +1164,25 @@ type DeliveryDraft = { county: string; town: string; rate_kes: number };
 const blankRate = (): DeliveryDraft => ({ county: "", town: "", rate_kes: 0 });
 
 function DeliveryTab({ showToast }: { showToast: (m:string)=>void }) {
-  const [rates,   setRates]   = useState<DeliveryRate[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<DeliveryRate|null>(null);
-  const [adding,  setAdding]  = useState(false);
-  const [draft,   setDraft]   = useState<DeliveryDraft>(blankRate());
-  const [saving,  setSaving]  = useState(false);
-  const [confirm, setConfirm] = useState<string|null>(null);
+  const [rates,       setRates]       = useState<DeliveryRate[]>([]);
+  const [orders,      setOrders]      = useState<AdminOrder[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [editing,     setEditing]     = useState<DeliveryRate|null>(null);
+  const [adding,      setAdding]      = useState(false);
+  const [draft,       setDraft]       = useState<DeliveryDraft>(blankRate());
+  const [saving,      setSaving]      = useState(false);
+  const [confirm,     setConfirm]     = useState<string|null>(null);
+  const [viewingOrder, setViewingOrder] = useState<AdminOrder|null>(null);
 
   const load = useCallback(async () => {
-    try { setRates(await api("/api/admin/delivery-rates")); }
-    catch (e) { showToast(`Error: ${e}`); }
+    try {
+      const [r, o] = await Promise.all([
+        api("/api/admin/delivery-rates"),
+        api("/api/admin/orders"),
+      ]);
+      setRates(r);
+      setOrders(o);
+    } catch (e) { showToast(`Error: ${e}`); }
     finally { setLoading(false); }
   }, [showToast]);
 
@@ -1214,64 +1222,184 @@ function DeliveryTab({ showToast }: { showToast: (m:string)=>void }) {
     setConfirm(null);
   };
 
+  const updateOrderStatus = async (id: string, status: string) => {
+    setSaving(true);
+    try {
+      await api("/api/admin/orders", { method:"PUT", body: JSON.stringify({ id, status }) });
+      setOrders(prev => prev.map(o => o.id===id ? {...o, status} : o));
+      if (viewingOrder?.id===id) setViewingOrder(prev => prev ? {...prev, status} : null);
+      showToast(`✓ Status updated to ${status}`);
+    } catch (e) { showToast(`Error: ${e}`); }
+    finally { setSaving(false); }
+  };
+
   const byCounty = rates.reduce<Record<string, DeliveryRate[]>>((acc, r) => {
     (acc[r.county] ??= []).push(r); return acc;
   }, {});
 
+  const inTransit = orders.filter(o => o.status === "shipped" || o.status === "delivered");
+
   if (loading) return <Spinner />;
 
   return (
-    <div>
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <div>
-          <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>Delivery Rates</h2>
-          <p className="text-[13px] mt-0.5" style={{ color:"#6f6a62" }}>{rates.length} rates · county-level defaults + town overrides</p>
+    <div className="space-y-10">
+
+      {/* ── In Transit / Delivered Orders ── */}
+      <div>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>Delivery Tracking</h2>
+            <p className="text-[13px] mt-0.5" style={{ color:"#6f6a62" }}>
+              {inTransit.filter(o=>o.status==="shipped").length} in transit &nbsp;·&nbsp;
+              {inTransit.filter(o=>o.status==="delivered").length} delivered
+            </p>
+          </div>
+          <Btn variant="outline" onClick={load}>↻ Refresh</Btn>
         </div>
-        <Btn onClick={openAdd}>+ Add rate</Btn>
+
+        {inTransit.length === 0 ? (
+          <div className="bg-white rounded-[16px] p-8 text-center" style={{ border:"1px solid #ebe2d2" }}>
+            <p className="text-[32px] mb-2">🚚</p>
+            <p className="font-[600] text-[14px]">No orders in transit or delivered yet</p>
+            <p className="text-[13px] mt-1" style={{color:"#9b9589"}}>Orders marked as <strong>shipped</strong> or <strong>delivered</strong> will appear here.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {inTransit.map(o => (
+              <div key={o.id}
+                className="bg-white rounded-[14px] p-4 flex flex-wrap items-center gap-3 cursor-pointer hover:border-[#B84A32] transition"
+                style={{ border:"1px solid #ebe2d2" }}
+                onClick={() => setViewingOrder(o)}>
+                <StatusBadge s={o.status} />
+                <div className="flex-1 min-w-[160px]">
+                  <span className="font-[600] text-[13px]">{o.name}</span>
+                  <span className="text-[12px] ml-2" style={{color:"#6f6a62"}}>{o.county}{o.town ? `, ${o.town}` : ""}</span>
+                </div>
+                <div className="flex items-center gap-3 text-[12px]">
+                  {o.mpesa_ref
+                    ? <span className="font-mono px-2 py-0.5 rounded-[6px]" style={{background:"#f0fdf4",color:"#16a34a",border:"1px solid #bbf7d0"}}>{o.mpesa_ref}</span>
+                    : <span className="text-[11px]" style={{color:"#9b9589"}}>no M-Pesa ref</span>
+                  }
+                  <span className="font-[700]" style={{color:"#B84A32"}}>{kes(o.total_kes)}</span>
+                  <span style={{color:"#9b9589"}}>{new Date(o.created_at).toLocaleDateString("en-KE",{day:"numeric",month:"short",year:"2-digit"})}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {Object.keys(byCounty).length === 0 && (
-        <div className="text-center py-16">
-          <p className="text-[15px] font-[600] mb-2">No delivery rates yet</p>
-          <p className="text-[13px] mb-4" style={{color:"#9b9589"}}>Add a county rate to get started. Town-level rates override the county default.</p>
-          <Btn onClick={openAdd}>+ Add first rate</Btn>
+      {/* ── Delivery Rates ── */}
+      <div>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div>
+            <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:22, fontWeight:600 }}>Delivery Rates</h2>
+            <p className="text-[13px] mt-0.5" style={{ color:"#6f6a62" }}>{rates.length} rates · county-level defaults + town overrides</p>
+          </div>
+          <Btn onClick={openAdd}>+ Add rate</Btn>
         </div>
+
+        {Object.keys(byCounty).length === 0 && (
+          <div className="text-center py-16">
+            <p className="text-[15px] font-[600] mb-2">No delivery rates yet</p>
+            <p className="text-[13px] mb-4" style={{color:"#9b9589"}}>Add a county rate to get started. Town-level rates override the county default.</p>
+            <Btn onClick={openAdd}>+ Add first rate</Btn>
+          </div>
+        )}
+
+        <div className="space-y-6">
+          {Object.entries(byCounty).map(([county, countyRates]) => (
+            <div key={county} className="bg-white rounded-[16px] overflow-hidden" style={{ border:"1px solid #ebe2d2" }}>
+              <div className="px-5 py-3 flex items-center justify-between" style={{background:"#f8f4ef", borderBottom:"1px solid #ebe2d2"}}>
+                <h3 className="font-[700] text-[14px]">{county}</h3>
+                <span className="text-[11px]" style={{color:"#9b9589"}}>{countyRates.length} rate{countyRates.length>1?"s":""}</span>
+              </div>
+              <table className="w-full text-[13px]">
+                <tbody>
+                  {countyRates.map(r => (
+                    <tr key={r.id} style={{borderBottom:"1px solid #f5f0e8"}}>
+                      <td className="px-5 py-3">
+                        {r.town
+                          ? <span>{r.town}</span>
+                          : <span className="text-[11px] px-2 py-0.5 rounded-full font-[600]" style={{background:"#f5ede3",color:"#B84A32"}}>County default</span>
+                        }
+                      </td>
+                      <td className="px-5 py-3 font-[700]" style={{color: r.rate_kes===0 ? "#16a34a" : "#2B2B2E"}}>
+                        {r.rate_kes === 0 ? "Free" : kes(r.rate_kes)}
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <div className="flex gap-1 justify-end">
+                          <Btn size="sm" variant="outline" onClick={()=>openEdit(r)}>Edit</Btn>
+                          <Btn size="sm" variant="danger" onClick={()=>setConfirm(r.id)}>✕</Btn>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Order detail modal (from delivery tracking) ── */}
+      {viewingOrder && (
+        <Modal title={`Order — ${viewingOrder.name}`} onClose={()=>setViewingOrder(null)} wide>
+          <div className="space-y-5">
+            <div className="grid grid-cols-2 gap-3 text-[13px]">
+              {([
+                ["Name", viewingOrder.name],
+                ["Email", viewingOrder.email],
+                ["Phone", viewingOrder.phone],
+                ["Location", [viewingOrder.town, viewingOrder.county, "Kenya"].filter(Boolean).join(", ")],
+                ["M-Pesa Ref", viewingOrder.mpesa_ref || "—"],
+                ["Date", new Date(viewingOrder.created_at).toLocaleString("en-KE")],
+              ] as [string,string][]).map(([label, val]) => (
+                <div key={label} className="p-3 rounded-[10px]" style={{background:"#f8f4ef"}}>
+                  <div className="text-[10px] font-[700] uppercase tracking-wide mb-1" style={{color:"#9b9589"}}>{label}</div>
+                  <div className="font-[500]" style={{color: label==="M-Pesa Ref" && viewingOrder.mpesa_ref ? "#16a34a" : "#2B2B2E"}}>{val}</div>
+                </div>
+              ))}
+            </div>
+            <div>
+              <div className="text-[11px] font-[700] uppercase tracking-wide mb-3" style={{color:"#9b9589"}}>Items</div>
+              <div className="space-y-2">
+                {viewingOrder.items.map((item, i) => (
+                  <div key={i} className="flex items-center gap-3 p-3 rounded-[10px]" style={{background:"#fafaf8",border:"1px solid #ebe2d2"}}>
+                    <div className="w-6 h-6 rounded-full flex-shrink-0 border-2 border-white shadow" style={{background: item.colour_hex}} />
+                    <div className="flex-1 text-[12px]">
+                      <span className="font-[600]">{item.product_slug}</span>
+                      <span className="ml-1" style={{color:"#6f6a62"}}>· {item.colour_name} · {item.size} · {item.finish} × {item.quantity}</span>
+                    </div>
+                    <span className="font-[700] text-[13px]" style={{color:"#B84A32"}}>{kes(item.unit_kes * item.quantity)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between items-center mt-3 pt-3" style={{borderTop:"1px solid #ebe2d2"}}>
+                <span className="font-[700]">Total</span>
+                <span className="font-[700] text-[16px]" style={{color:"#B84A32"}}>{kes(viewingOrder.total_kes)}</span>
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] font-[700] uppercase tracking-wide mb-2" style={{color:"#9b9589"}}>Update Status</div>
+              <div className="flex flex-wrap gap-2">
+                {(["shipped","delivered","cancelled"] as string[]).map(s => (
+                  <button key={s} disabled={saving || viewingOrder.status===s}
+                    onClick={() => updateOrderStatus(viewingOrder.id, s)}
+                    className="px-3 py-1.5 rounded-full text-[12px] font-[600] border transition disabled:opacity-50"
+                    style={{
+                      background: viewingOrder.status===s ? statusBg(s) : "white",
+                      color: viewingOrder.status===s ? statusFg(s) : "#6f6a62",
+                      borderColor: viewingOrder.status===s ? statusFg(s)+"40" : "#d8ccb8",
+                    }}>{s}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Modal>
       )}
 
-      <div className="space-y-6">
-        {Object.entries(byCounty).map(([county, countyRates]) => (
-          <div key={county} className="bg-white rounded-[16px] overflow-hidden" style={{ border:"1px solid #ebe2d2" }}>
-            <div className="px-5 py-3 flex items-center justify-between" style={{background:"#f8f4ef", borderBottom:"1px solid #ebe2d2"}}>
-              <h3 className="font-[700] text-[14px]">{county}</h3>
-              <span className="text-[11px]" style={{color:"#9b9589"}}>{countyRates.length} rate{countyRates.length>1?"s":""}</span>
-            </div>
-            <table className="w-full text-[13px]">
-              <tbody>
-                {countyRates.map(r => (
-                  <tr key={r.id} style={{borderBottom:"1px solid #f5f0e8"}}>
-                    <td className="px-5 py-3">
-                      {r.town
-                        ? <span>{r.town}</span>
-                        : <span className="text-[11px] px-2 py-0.5 rounded-full font-[600]" style={{background:"#f5ede3",color:"#B84A32"}}>County default</span>
-                      }
-                    </td>
-                    <td className="px-5 py-3 font-[700]" style={{color: r.rate_kes===0 ? "#16a34a" : "#2B2B2E"}}>
-                      {r.rate_kes === 0 ? "Free" : kes(r.rate_kes)}
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      <div className="flex gap-1 justify-end">
-                        <Btn size="sm" variant="outline" onClick={()=>openEdit(r)}>Edit</Btn>
-                        <Btn size="sm" variant="danger" onClick={()=>setConfirm(r.id)}>✕</Btn>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
-      </div>
-
+      {/* ── Rate add/edit modal ── */}
       {(editing||adding) && (
         <Modal title={adding ? "Add delivery rate" : `Edit — ${editing!.county}${editing!.town ? ` / ${editing!.town}` : ""}`} onClose={closeModal}>
           <div className="space-y-4">

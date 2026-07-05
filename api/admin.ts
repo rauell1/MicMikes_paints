@@ -61,6 +61,165 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const sql = neon(process.env.DATABASE_URL!);
 
+  /* ── DASHBOARD ── */
+  if (resource === "dashboard") {
+    if (req.method !== "GET") return res.status(405).end();
+    const [
+      revRows,
+      statusRows,
+      topProductRows,
+      slowRows,
+      recentRows,
+      mpesaRows,
+      countyRows,
+    ] = await Promise.all([
+      sql`
+        SELECT
+          COALESCE(SUM(CASE WHEN created_at >= date_trunc('day',   now() AT TIME ZONE 'Africa/Nairobi') THEN total_kes END), 0) AS today,
+          COALESCE(SUM(CASE WHEN created_at >= date_trunc('week',  now() AT TIME ZONE 'Africa/Nairobi') THEN total_kes END), 0) AS this_week,
+          COALESCE(SUM(CASE WHEN created_at >= date_trunc('month', now() AT TIME ZONE 'Africa/Nairobi') THEN total_kes END), 0) AS this_month,
+          COALESCE(SUM(total_kes), 0) AS all_time,
+          COUNT(*) AS total_orders,
+          ROUND(AVG(total_kes)::numeric, 0) AS avg_order_value
+        FROM orders
+        WHERE status NOT IN ('cancelled')
+      `,
+      sql`
+        SELECT status, COUNT(*) AS count
+        FROM orders
+        GROUP BY status
+        ORDER BY count DESC
+      `,
+      sql`
+        SELECT
+          p.name, p.slug, p.image_url, p.category,
+          SUM(oi.quantity)               AS units_sold,
+          SUM(oi.quantity * oi.unit_kes) AS revenue_kes,
+          COUNT(DISTINCT oi.order_id)    AS order_count
+        FROM order_items oi
+        JOIN orders o   ON o.id  = oi.order_id
+        JOIN products p ON p.id = oi.product_id
+        WHERE o.created_at >= now() - interval '90 days'
+          AND o.status NOT IN ('cancelled')
+        GROUP BY p.id, p.name, p.slug, p.image_url, p.category
+        ORDER BY units_sold DESC
+        LIMIT 8
+      `,
+      sql`
+        SELECT p.name, p.slug, p.category, p.image_url,
+          MAX(o.created_at) AS last_ordered
+        FROM products p
+        LEFT JOIN order_items oi ON oi.product_id = p.id
+        LEFT JOIN orders o ON o.id = oi.order_id AND o.status NOT IN ('cancelled')
+        GROUP BY p.id, p.name, p.slug, p.category, p.image_url
+        HAVING MAX(o.created_at) IS NULL OR MAX(o.created_at) < now() - interval '60 days'
+        ORDER BY last_ordered ASC NULLS FIRST
+        LIMIT 8
+      `,
+      sql`
+        SELECT id, name, email, phone, county, town, total_kes, status, mpesa_ref, created_at
+        FROM orders
+        ORDER BY created_at DESC
+        LIMIT 10
+      `,
+      sql`
+        SELECT
+          COUNT(*) AS total,
+          SUM(CASE WHEN result_code = '0'    THEN 1 ELSE 0 END) AS success,
+          SUM(CASE WHEN result_code = '1032' THEN 1 ELSE 0 END) AS cancelled,
+          SUM(CASE WHEN result_code NOT IN ('0','1032') AND result_code IS NOT NULL THEN 1 ELSE 0 END) AS failed
+        FROM mpesa_callbacks
+        WHERE created_at >= now() - interval '30 days'
+      `.catch(() => [{ total: 0, success: 0, cancelled: 0, failed: 0 }]),
+      sql`
+        SELECT county, COUNT(*) AS orders, SUM(total_kes) AS revenue_kes
+        FROM orders
+        WHERE status NOT IN ('cancelled') AND county IS NOT NULL
+        GROUP BY county
+        ORDER BY revenue_kes DESC
+        LIMIT 8
+      `,
+    ]);
+    return res.status(200).json({
+      revenue:      revRows[0]  ?? {},
+      byStatus:     statusRows,
+      topProducts:  topProductRows,
+      slowMovers:   slowRows,
+      recentOrders: recentRows,
+      mpesa:        mpesaRows[0] ?? { total: 0, success: 0, cancelled: 0, failed: 0 },
+      byCounty:     countyRows,
+    });
+  }
+
+  /* ── CUSTOMERS ── */
+  if (resource === "customers") {
+    if (req.method !== "GET") return res.status(405).end();
+    const rows = await sql`
+      SELECT
+        MIN(id)::text                          AS id,
+        MAX(name)                              AS name,
+        MAX(email)                             AS email,
+        phone,
+        MAX(county)                            AS county,
+        MAX(town)                              AS town,
+        COUNT(*)::int                          AS order_count,
+        COALESCE(SUM(
+          CASE WHEN status NOT IN ('cancelled') THEN total_kes ELSE 0 END
+        ), 0)::int                             AS total_spent_kes,
+        MAX(created_at)                        AS last_order_at
+      FROM orders
+      WHERE phone IS NOT NULL
+      GROUP BY phone
+      ORDER BY total_spent_kes DESC
+      LIMIT 500
+    `;
+    return res.status(200).json(rows);
+  }
+
+  /* ── STOCK ── */
+  if (resource === "stock") {
+    if (req.method === "GET") {
+      const rows = await sql`
+        SELECT
+          ps.id, ps.product_id,
+          p.name  AS product_name,
+          p.slug  AS product_slug,
+          ps.size, ps.colour_id,
+          c.name  AS colour_name,
+          ps.stock, ps.low_stock_threshold
+        FROM product_stock ps
+        JOIN products p ON p.id = ps.product_id
+        LEFT JOIN colours c ON c.id = ps.colour_id
+        ORDER BY p.name, ps.size, c.name NULLS LAST
+      `;
+      return res.status(200).json(rows);
+    }
+    if (req.method === "PUT") {
+      const id = (req.query.id ?? req.body?.id) as string | undefined;
+      if (!id) return res.status(400).json({ error: "Missing id" });
+      const { stock, low_stock_threshold } = req.body as { stock?: number; low_stock_threshold?: number };
+      if (stock === undefined && low_stock_threshold === undefined)
+        return res.status(400).json({ error: "Provide stock and/or low_stock_threshold" });
+      if (stock !== undefined && low_stock_threshold !== undefined) {
+        await sql`UPDATE product_stock SET stock=${stock}, low_stock_threshold=${low_stock_threshold}, updated_at=now() WHERE id=${id}`;
+      } else if (stock !== undefined) {
+        await sql`UPDATE product_stock SET stock=${stock}, updated_at=now() WHERE id=${id}`;
+      } else {
+        await sql`UPDATE product_stock SET low_stock_threshold=${low_stock_threshold!}, updated_at=now() WHERE id=${id}`;
+      }
+      const [updated] = await sql`
+        SELECT ps.id, ps.product_id, p.name AS product_name, p.slug AS product_slug,
+          ps.size, ps.colour_id, c.name AS colour_name, ps.stock, ps.low_stock_threshold
+        FROM product_stock ps
+        JOIN products p ON p.id = ps.product_id
+        LEFT JOIN colours c ON c.id = ps.colour_id
+        WHERE ps.id = ${id}
+      `;
+      return res.status(200).json(updated);
+    }
+    return res.status(405).end();
+  }
+
   /* ── COLOURS ── */
   if (resource === "colours") {
     if (req.method === "GET") {
@@ -193,30 +352,43 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   /* ── DELIVERY RATES ── */
   if (resource === "delivery-rates") {
     if (req.method === "GET") {
-      const rows = await sql`SELECT id, county, town, rate_kes, notes FROM delivery_rates ORDER BY county, town`;
-      return res.json(rows);
+      const rows = await sql`
+        SELECT id, county, town, rate_kes, updated_at
+        FROM delivery_rates
+        ORDER BY county ASC, town ASC NULLS LAST
+      `;
+      return res.status(200).json(rows);
     }
     if (req.method === "POST") {
-      const { county, town, rate_kes, notes } = req.body;
+      const { county, town, rate_kes } = req.body as { county: string; town?: string | null; rate_kes: number };
       if (!county || rate_kes === undefined) return res.status(400).json({ error: "county and rate_kes required" });
       const [row] = await sql`
-        INSERT INTO delivery_rates (id, county, town, rate_kes, notes)
-        VALUES (gen_random_uuid(), ${String(county).trim()}, ${town ? String(town).trim() : null}, ${Number(rate_kes)}, ${notes ?? null})
-        RETURNING id, county, town, rate_kes, notes`;
-      return res.status(201).json(row);
+        INSERT INTO delivery_rates (county, town, rate_kes)
+        VALUES (${county.trim()}, ${town?.trim() || null}, ${Number(rate_kes)})
+        ON CONFLICT (county, town)
+        DO UPDATE SET rate_kes = EXCLUDED.rate_kes, updated_at = now()
+        RETURNING id, county, town, rate_kes, updated_at
+      `;
+      return res.status(200).json(row);
     }
     if (req.method === "PUT") {
-      const { id, county, town, rate_kes, notes } = req.body;
+      const { id, county, town, rate_kes } = req.body as { id: string; county: string; town?: string | null; rate_kes: number };
+      if (!id || !county || rate_kes === undefined) return res.status(400).json({ error: "id, county and rate_kes required" });
       const [row] = await sql`
-        UPDATE delivery_rates SET county=${String(county).trim()}, town=${town ? String(town).trim() : null}, rate_kes=${Number(rate_kes)}, notes=${notes ?? null}
-        WHERE id=${id}
-        RETURNING id, county, town, rate_kes, notes`;
-      return res.json(row);
+        UPDATE delivery_rates
+        SET county = ${county.trim()}, town = ${town?.trim() || null},
+            rate_kes = ${Number(rate_kes)}, updated_at = now()
+        WHERE id = ${id}
+        RETURNING id, county, town, rate_kes, updated_at
+      `;
+      if (!row) return res.status(404).json({ error: "Rate not found" });
+      return res.status(200).json(row);
     }
     if (req.method === "DELETE") {
-      const { id } = req.body;
-      await sql`DELETE FROM delivery_rates WHERE id=${id}`;
-      return res.json({ ok: true });
+      const { id } = req.body as { id: string };
+      if (!id) return res.status(400).json({ error: "id required" });
+      await sql`DELETE FROM delivery_rates WHERE id = ${id}`;
+      return res.status(204).end();
     }
     return res.status(405).end();
   }

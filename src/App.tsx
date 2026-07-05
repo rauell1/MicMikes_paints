@@ -114,13 +114,20 @@ function VisualizerCanvas({ room, colour, finish }: { room: Room; colour: Colour
   }, [room.photo, colour.hex, finish]);
 
   return (
-    <div className="relative w-full" style={{ aspectRatio: "16/9" }}>
+    <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16/9", background: "#17171a" }}>
       {!loaded && (
-        <div className="absolute inset-0 flex items-center justify-center" style={{ background: "#17171a" }}>
+        <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-[13px]" style={{ color: "#888" }}>Loading room…</div>
         </div>
       )}
-      <canvas ref={canvasRef} className="w-full h-full object-cover" style={{ display: loaded ? "block" : "none" }} />
+      <canvas ref={canvasRef} style={{
+        display: loaded ? "block" : "none",
+        width: "100%",
+        height: "100%",
+        objectFit: "cover",
+        position: "absolute",
+        top: 0, left: 0,
+      }} />
       {loaded && (
         <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 px-[12px] py-[8px] rounded-[12px] text-[12.5px] font-[600]"
@@ -668,11 +675,11 @@ export default function App() {
               <p className="mm-muted mt-2">See your chosen colour in a real room before you buy. Use ← → keys to cycle shades.</p>
             </div>
             {vizColour && vizRoom ? (
-              <div className="grid lg:grid-cols-12 gap-6 lg:gap-8">
-                <div className="lg:col-span-8">
-                  <div className="mm-card rounded-[22px] overflow-hidden mm-shadow">
+              <div className="grid lg:grid-cols-12 gap-6 lg:gap-8" style={{ minWidth: 0 }}>
+                <div className="lg:col-span-8" style={{ minWidth: 0, width: "100%" }}>
+                  <div className="mm-card rounded-[22px] overflow-hidden mm-shadow" style={{ maxWidth: "100%", width: "100%" }}>
                     <VisualizerCanvas room={vizRoom} colour={vizColour} finish={vizFinish} />
-                    <div className="px-4 py-3 flex gap-2 overflow-x-auto">
+                    <div className="px-4 py-3 flex gap-2 overflow-x-auto" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
                       {rooms.map((r, i) => (
                         <button key={r.id} onClick={() => setVizRoomIdx(i)}
                           className={`flex items-center gap-2 flex-shrink-0 px-3 py-[7px] rounded-full text-[12.5px] font-[500] border transition ${vizRoomIdx === i ? "border-[#2B2B2E] bg-[#2B2B2E] text-[#F8F4EF]" : "border-[#e2d3b7] bg-white"}`}>

@@ -202,7 +202,6 @@ function CheckoutDialog({
   const handleSubmit = async () => {
     setSubmitting(true); setError("");
     try {
-      // 1. Create the order — maps cart[] → items[] with productSlug
       const items = cart.map(i => ({
         productSlug: i.productSlug,
         colourId:    i.colourId || null,
@@ -223,13 +222,11 @@ function CheckoutDialog({
         throw new Error(String(msg));
       }
 
-      // api/orders returns: { orderId, reference, subtotalKes, deliveryKes, totalKes }
       const orderData = await orderRes.json() as { orderId: string; reference: string; totalKes: number };
       const { orderId, reference: invoice, totalKes: confirmedTotal } = orderData;
 
       if (payMethod === "mpesa") {
         setMpesaStatus("pending");
-        // 2. Initiate STK push — api/mpesa/stkpush expects: { orderId, phone, amountKes }
         const mpesaRes = await fetch("/api/mpesa/stkpush", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -247,11 +244,9 @@ function CheckoutDialog({
         if (checkoutRequestId) {
           await pollMpesaStatus(checkoutRequestId, invoice);
         } else {
-          // STK push accepted but no polling ID — treat as success
           onSuccess({ invoice });
         }
       } else {
-        // Card / other — order already created, just confirm
         onSuccess({ invoice });
       }
     } catch (err) {
@@ -282,7 +277,6 @@ function CheckoutDialog({
         </div>
 
         <div className="overflow-y-auto flex-1 px-6 py-5 space-y-4">
-          {/* Step indicators */}
           <div className="flex gap-2 mb-2">
             {(["details","payment","confirm"] as const).map((s,i) => (
               <div key={s} className="flex items-center gap-2">
@@ -607,7 +601,7 @@ export default function App() {
                 <div className="mm-card rounded-[28px] overflow-hidden mm-shadow">
                   <div className="relative">
                     <img src="https://images.pexels.com/photos/1571460/pexels-photo-1571460.jpeg?auto=compress&cs=tinysrgb&w=1400" alt="Keekorok living room" className="w-full h-[340px] sm:h-[430px] object-cover" loading="eager" />
-                    <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(43,43,46,0.08) 0%, rgba(43,43,46,0.22) 100%)" }}/>
+                    <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(43,43,46,0.08) 0%, rgba(43,43,46,0.22) 100%)"}}/> 
                     <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between gap-3">
                       <div className="px-[14px] py-[9px] rounded-[14px] bg-white/95 text-[13px] font-[600]">Ocean Breeze • Satin</div>
                       <div className="px-[12px] py-[8px] rounded-full text-[11px] font-mono2 bg-[#2B2B2E] text-[#F8F4EF]">Keekorok</div>
@@ -887,4 +881,61 @@ export default function App() {
             {cart.length > 0 && (
               <div className="px-6 py-5 border-t space-y-3" style={{ borderColor: "#e7d9c3" }}>
                 <div className="flex justify-between text-[13.5px]"><span className="mm-muted">Subtotal</span><span className="font-[600]">{kes(subtotal)}</span></div>
-                <div className="flex justify-between text-[13px] mm-muted"><span>Delivery</span><span>{deliveryFee === 0 ? "Free" : kes(deliveryFee)}</span></di
+                <div className="flex justify-between text-[13px] mm-muted"><span>Delivery</span><span>{deliveryFee === 0 ? "Free" : kes(deliveryFee)}</span></div>
+                <div className="flex justify-between text-[15px] font-[700] pt-2 border-t" style={{ borderColor: "#eadcc4" }}>
+                  <span>Total</span><span>{kes(totalKes)}</span>
+                </div>
+                <button onClick={() => { setCartOpen(false); setCheckoutOpen(true); }}
+                  className="btn btn-dark w-full py-[13px] text-[14.5px]">
+                  Checkout · {kes(totalKes)}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {checkoutOpen && !orderSuccess && (
+        <CheckoutDialog
+          subtotal={subtotal}
+          deliveryFee={deliveryFee}
+          total={totalKes}
+          cartCount={cartCount}
+          cart={cart}
+          onClose={() => setCheckoutOpen(false)}
+          onSuccess={(meta) => {
+            setOrderSuccess(meta);
+            setCart([]);
+            setCheckoutOpen(false);
+          }}
+        />
+      )}
+
+      {orderSuccess && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 fade" onClick={() => setOrderSuccess(null)} />
+          <div className="relative w-full max-w-[420px] rounded-[24px] p-8 text-center fade mm-shadow" style={{ background: "#F8F4EF" }}>
+            <div className="text-5xl mb-4">🎉</div>
+            <div className="font-display text-[28px] mb-2">Order Placed!</div>
+            <p className="mm-muted text-[14.5px] mb-2">Your Keekorok paints are on their way.</p>
+            <div className="font-mono2 text-[13px] px-4 py-2 rounded-full bg-white border inline-block mb-6" style={{ borderColor: "#e2d3b7" }}>
+              Ref: {orderSuccess.invoice}
+            </div>
+            <button onClick={() => setOrderSuccess(null)} className="btn btn-primary w-full py-[13px] text-[14.5px]">
+              Continue Shopping
+            </button>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="fixed bottom-[84px] left-1/2 -translate-x-1/2 z-[100] px-5 py-[11px] rounded-full text-[13px] font-[600] text-white fade mm-shadow"
+          style={{ background: "#2B2B2E", whiteSpace: "nowrap" }}>
+          ✓ {toast}
+        </div>
+      )}
+
+      <Analytics />
+    </div>
+  );
+}

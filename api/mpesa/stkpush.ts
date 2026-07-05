@@ -12,7 +12,7 @@ const ALLOWED_ORIGINS = [
 function cors(req: VercelRequest, res: VercelResponse) {
   const origin = req.headers.origin ?? "";
   if (ALLOWED_ORIGINS.includes(origin)) res.setHeader("Access-Control-Allow-Origin", origin);
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
@@ -67,11 +67,43 @@ async function fetchAccessToken(): Promise<string> {
   return data.access_token;
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  cors(req, res);
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+// ── GET /api/mpesa/stkpush?id=<checkoutRequestId> — poll payment status ──────
+async function handleStatusGet(req: VercelRequest, res: VercelResponse) {
+  const checkoutRequestId = req.query.id as string | undefined;
+  if (!checkoutRequestId)
+    return res.status(400).json({ error: "checkoutRequestId (?id=) is required" });
 
+  if (!process.env.DATABASE_URL)
+    return res.status(503).json({ error: "Database not configured" });
+
+  const sql = neon(process.env.DATABASE_URL!);
+  const [payment] = await sql`
+    SELECT mp.status, mp.mpesa_receipt, mp.failure_reason, mp.result_code,
+           mp.amount_kes, mp.completed_at,
+           o.id AS order_id, o.name AS customer_name, o.total_kes
+    FROM mpesa_payments mp
+    JOIN orders o ON o.id = mp.order_id
+    WHERE mp.checkout_request_id = ${checkoutRequestId}
+  `;
+
+  if (!payment) return res.status(404).json({ error: "Payment not found" });
+
+  const normalizedStatus = (payment.status as string).toLowerCase();
+
+  return res.status(200).json({
+    status:        normalizedStatus,
+    receipt:       payment.mpesa_receipt ?? null,
+    failureReason: payment.failure_reason ?? null,
+    amountKes:     payment.amount_kes,
+    completedAt:   payment.completed_at ?? null,
+    orderId:       payment.order_id,
+    customerName:  payment.customer_name,
+    totalKes:      payment.total_kes,
+  });
+}
+
+// ── POST /api/mpesa/stkpush — initiate STK push ───────────────────────────────
+async function handleStkPost(req: VercelRequest, res: VercelResponse) {
   const required = ["MPESA_CONSUMER_KEY", "MPESA_CONSUMER_SECRET", "MPESA_SHORTCODE", "MPESA_PASSKEY", "DATABASE_URL"];
   for (const key of required) {
     if (!process.env[key]) {
@@ -105,7 +137,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const timestamp = getEATTimestamp();
   const password = generatePassword(shortCode, passKey, timestamp);
 
-  // Sandbox/staging must set MPESA_CALLBACK_URL explicitly to avoid cross-env pollution.
   const callbackUrl = process.env.MPESA_CALLBACK_URL;
   if (!callbackUrl && !isProd) {
     console.error("[mpesa/stkpush] MPESA_CALLBACK_URL must be set in non-production environments");
@@ -180,4 +211,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     checkoutRequestId: stkData.CheckoutRequestID,
     customerMessage: stkData.CustomerMessage ?? "Please check your phone and enter your M-Pesa PIN.",
   });
+}
+
+// ── Router ────────────────────────────────────────────────────────────────────
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  cors(req, res);
+  if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method === "GET") return handleStatusGet(req, res);
+  if (req.method === "POST") return handleStkPost(req, res);
+  return res.status(405).json({ error: "Method not allowed" });
 }

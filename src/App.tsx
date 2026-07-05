@@ -148,9 +148,9 @@ function PaintedThumb({ room }: { room: Room; colourId?: string | null }) {
 
 /* ── CheckoutDialog ── */
 function CheckoutDialog({
-  subtotal, deliveryFee, total, cartCount, cart, onClose, onSuccess,
+  subtotal, total, cartCount, cart, onClose, onSuccess,
 }: {
-  subtotal: number; deliveryFee: number; total: number; cartCount: number;
+  subtotal: number; total: number; cartCount: number;
   cart: CartItem[];
   onClose: () => void;
   onSuccess: (meta: { invoice: string }) => void;
@@ -906,7 +906,6 @@ export default function App() {
       {checkoutOpen && !orderSuccess && (
         <CheckoutDialog
           subtotal={subtotal}
-          deliveryFee={deliveryFee}
           total={totalKes}
           cartCount={cartCount}
           cart={cart}

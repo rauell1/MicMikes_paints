@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /* ─── types ─── */
 type AdminColour  = { id: string; code: string; name: string; hex: string; family: string };
@@ -8,6 +8,8 @@ type AdminRoom    = { id: string; name: string; photo_url: string; wall_mask: st
 type AdminOrder   = { id: string; name: string; email: string; phone: string; county: string; town: string; total_kes: number; status: string; mpesa_ref: string; created_at: string; items: AdminOrderItem[] };
 type AdminOrderItem = { product_slug: string; colour_name: string; colour_hex: string; size: string; finish: string; quantity: number; unit_kes: number };
 type DeliveryRate = { id: string; county: string; town: string | null; rate_kes: number; updated_at: string };
+type StockEntry  = { id: string; product_id: string; product_name: string; product_slug: string; size: string; colour_id: string | null; colour_name: string | null; stock: number; low_stock_threshold: number };
+type CustomerRow = { id: string; name: string; email: string; phone: string; county: string; town: string; order_count: number; total_spent_kes: number; last_order_at: string };
 
 type DashboardData = {
   revenue: { today: number; this_week: number; this_month: number; all_time: number; total_orders: number; avg_order_value: number };
@@ -19,12 +21,12 @@ type DashboardData = {
   byCounty: { county: string; orders: number; revenue_kes: number }[];
 };
 
-type Tab = "dashboard" | "colours" | "products" | "rooms" | "orders" | "delivery";
+type Tab = "dashboard" | "colours" | "products" | "rooms" | "orders" | "delivery" | "stock" | "customers";
 
-const FAMILIES = ["Neutrals","Warm Earth","Cool Green","Blue","Red & Terracotta","Yellow & Gold"];
+const FAMILIES   = ["Neutrals","Warm Earth","Cool Green","Blue","Red & Terracotta","Yellow & Gold"];
 const CATEGORIES = ["Paint","Primer","Supplies"];
 const STATUSES   = ["pending","paid","processing","shipped","delivered","cancelled"];
-const kes = (n: number) => `KES ${Number(n).toLocaleString("en-KE")}`;
+const kes  = (n: number) => `KES ${Number(n).toLocaleString("en-KE")}`;
 const slug = (s: string) => s.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"");
 
 async function api(path: string, opts?: RequestInit) {
@@ -39,7 +41,32 @@ async function api(path: string, opts?: RequestInit) {
   return res.json();
 }
 
-/* ─── shared UI pieces ─── */
+/* ─── CSV export helper ─── */
+function downloadCSV(filename: string, rows: Record<string, unknown>[]) {
+  if (!rows.length) return;
+  const headers = Object.keys(rows[0]);
+  const lines = [
+    headers.join(","),
+    ...rows.map(r => headers.map(h => {
+      const v = String(r[h] ?? "").replace(/"/g, '""');
+      return v.includes(",") || v.includes('"') || v.includes("\n") ? `"${v}"` : v;
+    }).join(",")),
+  ];
+  const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+}
+
+/* ─── WhatsApp helper ─── */
+function waLink(phone: string, msg: string) {
+  const clean = phone.replace(/\D/g, "");
+  const intl  = clean.startsWith("0") ? "254" + clean.slice(1) : clean;
+  return `https://wa.me/${intl}?text=${encodeURIComponent(msg)}`;
+}
+
+/* ─── shared UI ─── */
 const Spinner = () => (
   <div className="flex items-center justify-center py-16">
     <div style={{ width:32, height:32, border:"3px solid #ebe2d2", borderTopColor:"#B84A32", borderRadius:"50%", animation:"spin 0.7s linear infinite" }} />
@@ -98,6 +125,20 @@ function StatusBadge({ s }: { s: string }) {
     cancelled:"bg-red-50 text-red-700 border-red-200",
   };
   return <span className={`text-[11px] font-[600] px-2 py-0.5 rounded-full border ${map[s] ?? "bg-gray-50 text-gray-700"}`}>{s}</span>;
+}
+
+function SearchBar({ value, onChange, placeholder }: { value: string; onChange: (v:string) => void; placeholder?: string }) {
+  return (
+    <div className="relative">
+      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9b9589] text-[13px]">🔍</span>
+      <input
+        className={inp + " pl-8"}
+        placeholder={placeholder ?? "Search…"}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+      />
+    </div>
+  );
 }
 
 /* ════════════════════════════════════════════════
@@ -189,6 +230,8 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     { id:"rooms",     label:"Rooms",     icon:"🏠" },
     { id:"orders",    label:"Orders",    icon:"📦" },
     { id:"delivery",  label:"Delivery",  icon:"🚚" },
+    { id:"stock",     label:"Stock",     icon:"📋" },
+    { id:"customers", label:"Customers", icon:"👤" },
   ];
 
   return (
@@ -239,6 +282,8 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
         {tab==="rooms"     && <RoomsTab     showToast={showToast} />}
         {tab==="orders"    && <OrdersTab    showToast={showToast} />}
         {tab==="delivery"  && <DeliveryTab  showToast={showToast} />}
+        {tab==="stock"     && <StockTab     showToast={showToast} />}
+        {tab==="customers" && <CustomersTab showToast={showToast} />}
       </main>
 
       {toast && (
@@ -258,6 +303,7 @@ function DashboardTab({ showToast }: { showToast: (m:string) => void }) {
   const [data,    setData]    = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(new Date());
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -269,7 +315,11 @@ function DashboardTab({ showToast }: { showToast: (m:string) => void }) {
     finally { setLoading(false); }
   }, [showToast]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    timerRef.current = setInterval(load, 5 * 60 * 1000); // auto-refresh every 5 min
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [load]);
 
   if (loading) return <Spinner />;
   if (!data)   return <p className="text-[13px]" style={{color:"#9b9589"}}>No data available yet.</p>;
@@ -292,16 +342,54 @@ function DashboardTab({ showToast }: { showToast: (m:string) => void }) {
     if (dy > 0) return `${dy}d ago`; if (h > 0) return `${h}h ago`; return `${m}m ago`;
   };
 
+  const pendingOrders = recentOrders.filter(o => o.status === "pending");
+
+  const exportDashboardCSV = () => {
+    downloadCSV("micmikes-dashboard.csv", byCounty.map(r => ({
+      County: r.county,
+      Orders: r.orders,
+      Revenue_KES: r.revenue_kes,
+    })));
+  };
+
   return (
     <div className="space-y-8">
       {/* header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>Dashboard</h2>
-          <p className="text-[12px] mt-0.5" style={{ color:"#9b9589" }}>Last refreshed {lastRefresh.toLocaleTimeString("en-KE")}</p>
+          <p className="text-[12px] mt-0.5" style={{ color:"#9b9589" }}>Auto-refreshes every 5 min · Last: {lastRefresh.toLocaleTimeString("en-KE")}</p>
         </div>
-        <Btn variant="outline" onClick={load}>↻ Refresh</Btn>
+        <div className="flex gap-2">
+          <Btn variant="outline" size="sm" onClick={exportDashboardCSV}>⬇ Export CSV</Btn>
+          <Btn variant="outline" onClick={load}>↻ Refresh</Btn>
+        </div>
       </div>
+
+      {/* ── Pending Orders Triage ── */}
+      {pendingOrders.length > 0 && (
+        <div className="rounded-[16px] p-5" style={{ background:"#fffbf0", border:"1px solid #f5e2a0" }}>
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-[13px] font-[700]" style={{ color:"#92400e" }}>⚠️ {pendingOrders.length} Pending Order{pendingOrders.length > 1 ? "s" : ""} need attention</span>
+          </div>
+          <div className="space-y-2">
+            {pendingOrders.slice(0, 5).map(o => (
+              <div key={o.id} className="flex flex-wrap items-center justify-between gap-2 bg-white rounded-[10px] px-4 py-3" style={{ border:"1px solid #ebe2d2" }}>
+                <div>
+                  <span className="text-[13px] font-[600]">{o.name}</span>
+                  <span className="text-[12px] ml-2" style={{ color:"#9b9589" }}>{o.county} · {kes(o.total_kes)}</span>
+                  <span className="text-[11px] ml-2" style={{ color:"#9b9589" }}>{timeAgo(o.created_at)}</span>
+                </div>
+                <div className="flex gap-2">
+                  <a href={waLink(o.phone, `Hi ${o.name}, your MicMikes Paints order of ${kes(o.total_kes)} is confirmed. Please send M-Pesa to 0700000000 Ref: ${o.id.slice(0,8).toUpperCase()}`)} target="_blank" rel="noopener noreferrer">
+                    <Btn variant="outline" size="sm">💬 WhatsApp</Btn>
+                  </a>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Revenue KPIs ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -330,174 +418,119 @@ function DashboardTab({ showToast }: { showToast: (m:string) => void }) {
         </div>
         <div className="bg-white rounded-[16px] p-5" style={{ border:"1px solid #ebe2d2" }}>
           <p className="text-[11px] font-[700] uppercase tracking-wide" style={{ color:"#9b9589" }}>Avg Order Value</p>
-          <p className="text-[22px] font-[700] mt-1" style={{ color:"#2B2B2E" }}>{kes(revenue.avg_order_value ?? 0)}</p>
-          <p className="text-[11px] mt-0.5" style={{ color:"#9b9589" }}>per order</p>
+          <p className="text-[28px] font-[700] mt-1" style={{ color:"#2B2B2E" }}>{kes(revenue.avg_order_value)}</p>
+          <p className="text-[11px] mt-0.5" style={{ color:"#9b9589" }}>per paid order</p>
         </div>
         <div className="bg-white rounded-[16px] p-5" style={{ border:"1px solid #ebe2d2" }}>
           <p className="text-[11px] font-[700] uppercase tracking-wide" style={{ color:"#9b9589" }}>M-Pesa Success</p>
-          <p className="text-[28px] font-[700] mt-1" style={{ color: mpesaRate >= 80 ? "#16a34a" : mpesaRate >= 50 ? "#d97706" : "#dc2626" }}>
-            {mpesaRate}%
-          </p>
-          <p className="text-[11px] mt-0.5" style={{ color:"#9b9589" }}>{mpesa.success}/{mpesa.total} payments · 30 days</p>
+          <p className="text-[28px] font-[700] mt-1" style={{ color: mpesaRate >= 80 ? "#16a34a" : "#d97706" }}>{mpesaRate}%</p>
+          <p className="text-[11px] mt-0.5" style={{ color:"#9b9589" }}>{mpesa.success}/{mpesa.total} transactions</p>
         </div>
         <div className="bg-white rounded-[16px] p-5" style={{ border:"1px solid #ebe2d2" }}>
           <p className="text-[11px] font-[700] uppercase tracking-wide" style={{ color:"#9b9589" }}>Pending Orders</p>
-          <p className="text-[28px] font-[700] mt-1" style={{ color: (statusMap["pending"] ?? 0) > 0 ? "#d97706" : "#16a34a" }}>
+          <p className="text-[28px] font-[700] mt-1" style={{ color: statusMap["pending"] > 0 ? "#d97706" : "#2B2B2E" }}>
             {statusMap["pending"] ?? 0}
           </p>
           <p className="text-[11px] mt-0.5" style={{ color:"#9b9589" }}>awaiting payment</p>
         </div>
       </div>
 
-      {/* ── Orders by Status + M-Pesa breakdown ── */}
-      <div className="grid lg:grid-cols-2 gap-6">
+      {/* ── Order Status Breakdown ── */}
+      <div className="bg-white rounded-[16px] p-6" style={{ border:"1px solid #ebe2d2" }}>
+        <h3 className="font-[700] text-[15px] mb-4" style={{ fontFamily:'"Playfair Display",Georgia,serif' }}>Order Status Breakdown</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {statusOrder.map(s => (
+            <div key={s} className="rounded-[12px] p-4 text-center" style={{ background:"#f8f4ef" }}>
+              <p className="text-[22px] font-[700]" style={{ color: statusColours[s] }}>{statusMap[s] ?? 0}</p>
+              <p className="text-[11px] font-[600] mt-1 capitalize" style={{ color:"#6f6a62" }}>{s}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Revenue by County ── */}
+      {byCounty.length > 0 && (
         <div className="bg-white rounded-[16px] p-6" style={{ border:"1px solid #ebe2d2" }}>
-          <h3 className="font-[700] text-[14px] mb-4">Orders by Status</h3>
-          <div className="space-y-3">
-            {statusOrder.map(s => {
-              const count = statusMap[s] ?? 0;
-              const total = byStatus.reduce((a,r) => a + Number(r.count), 0) || 1;
-              const pct = Math.round((count / total) * 100);
+          <h3 className="font-[700] text-[15px] mb-4" style={{ fontFamily:'"Playfair Display",Georgia,serif' }}>Revenue by County</h3>
+          <div className="space-y-2">
+            {byCounty.slice(0,8).map(r => {
+              const max = byCounty[0]?.revenue_kes ?? 1;
+              const pct = Math.round((r.revenue_kes / max) * 100);
               return (
-                <div key={s}>
-                  <div className="flex items-center justify-between mb-1">
-                    <StatusBadge s={s} />
-                    <span className="text-[12px] font-[600]" style={{ color:"#2B2B2E" }}>{count} <span style={{color:"#9b9589",fontWeight:400}}>({pct}%)</span></span>
+                <div key={r.county} className="flex items-center gap-3">
+                  <span className="text-[12px] font-[600] w-28 shrink-0">{r.county}</span>
+                  <div className="flex-1 h-2 rounded-full" style={{ background:"#f0ebe2" }}>
+                    <div className="h-2 rounded-full" style={{ width:`${pct}%`, background:"#B84A32" }} />
                   </div>
-                  <div className="h-1.5 rounded-full" style={{ background:"#f0ebe2" }}>
-                    <div className="h-1.5 rounded-full transition-all" style={{ width:`${pct}%`, background: statusColours[s] ?? "#9b9589" }} />
-                  </div>
+                  <span className="text-[12px] font-[600] w-28 text-right shrink-0">{kes(r.revenue_kes)}</span>
+                  <span className="text-[11px] w-10 text-right shrink-0" style={{ color:"#9b9589" }}>{r.orders} ord.</span>
                 </div>
               );
             })}
           </div>
         </div>
-
-        <div className="bg-white rounded-[16px] p-6" style={{ border:"1px solid #ebe2d2" }}>
-          <h3 className="font-[700] text-[14px] mb-4">Revenue by County</h3>
-          {byCounty.length === 0
-            ? <p className="text-[13px]" style={{color:"#9b9589"}}>No county data yet.</p>
-            : (
-              <div className="space-y-3">
-                {byCounty.map((row, i) => {
-                  const max = Number(byCounty[0].revenue_kes) || 1;
-                  const pct = Math.round((Number(row.revenue_kes) / max) * 100);
-                  return (
-                    <div key={row.county}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[12px] font-[600]">{i+1}. {row.county}</span>
-                        <span className="text-[12px]" style={{color:"#6f6a62"}}>{kes(row.revenue_kes)} · {row.orders} orders</span>
-                      </div>
-                      <div className="h-1.5 rounded-full" style={{ background:"#f0ebe2" }}>
-                        <div className="h-1.5 rounded-full" style={{ width:`${pct}%`, background:"#B84A32" }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )
-          }
-        </div>
-      </div>
+      )}
 
       {/* ── Top Products ── */}
-      <div className="bg-white rounded-[16px] p-6" style={{ border:"1px solid #ebe2d2" }}>
-        <h3 className="font-[700] text-[14px] mb-4">🔥 Top Selling Products <span className="font-[400] text-[12px]" style={{color:"#9b9589"}}>(last 90 days)</span></h3>
-        {topProducts.length === 0
-          ? <p className="text-[13px]" style={{color:"#9b9589"}}>No sales data yet — orders will appear here once placed.</p>
-          : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-[12px]">
-                <thead>
-                  <tr style={{borderBottom:"1px solid #ebe2d2"}}>
-                    <th className="text-left pb-2 font-[700]" style={{color:"#9b9589"}}>#</th>
-                    <th className="text-left pb-2 font-[700]" style={{color:"#9b9589"}}>Product</th>
-                    <th className="text-right pb-2 font-[700]" style={{color:"#9b9589"}}>Units</th>
-                    <th className="text-right pb-2 font-[700]" style={{color:"#9b9589"}}>Orders</th>
-                    <th className="text-right pb-2 font-[700]" style={{color:"#9b9589"}}>Revenue</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topProducts.map((p, i) => (
-                    <tr key={p.slug} style={{borderBottom:"1px solid #f5f0e8"}}>
-                      <td className="py-2.5 pr-3 font-[700]" style={{color:"#9b9589"}}>{i+1}</td>
-                      <td className="py-2.5">
-                        <div className="flex items-center gap-2">
-                          <img src={p.image_url} alt={p.name} className="w-8 h-8 rounded-[6px] object-cover bg-[#f5f0e8]" />
-                          <div>
-                            <div className="font-[600]">{p.name}</div>
-                            <div style={{color:"#9b9589"}}>{p.category}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-2.5 text-right font-[600]">{Number(p.units_sold).toLocaleString()}</td>
-                      <td className="py-2.5 text-right" style={{color:"#6f6a62"}}>{Number(p.order_count).toLocaleString()}</td>
-                      <td className="py-2.5 text-right font-[700]" style={{color:"#B84A32"}}>{kes(p.revenue_kes)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
-        }
-      </div>
+      {topProducts.length > 0 && (
+        <div className="bg-white rounded-[16px] p-6" style={{ border:"1px solid #ebe2d2" }}>
+          <h3 className="font-[700] text-[15px] mb-4" style={{ fontFamily:'"Playfair Display",Georgia,serif' }}>Top Products</h3>
+          <div className="space-y-3">
+            {topProducts.map((p, i) => (
+              <div key={p.slug} className="flex items-center gap-3">
+                <span className="text-[13px] font-[700] w-5 text-center" style={{ color:"#9b9589" }}>{i+1}</span>
+                <img src={p.image_url} alt={p.name} className="w-10 h-10 rounded-[8px] object-cover" style={{ border:"1px solid #ebe2d2" }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-[600] truncate">{p.name}</p>
+                  <p className="text-[11px]" style={{ color:"#9b9589" }}>{p.units_sold} units · {p.order_count} orders</p>
+                </div>
+                <span className="text-[13px] font-[700]" style={{ color:"#B84A32" }}>{kes(p.revenue_kes)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Slow Movers ── */}
-      <div className="bg-white rounded-[16px] p-6" style={{ border:"1px solid #ebe2d2" }}>
-        <h3 className="font-[700] text-[14px] mb-1">🐌 Slow / Dead Stock <span className="font-[400] text-[12px]" style={{color:"#9b9589"}}>(no orders in 60+ days)</span></h3>
-        <p className="text-[12px] mb-4" style={{color:"#9b9589"}}>Consider running promotions or discounts on these items.</p>
-        {slowMovers.length === 0
-          ? <p className="text-[13px]" style={{color:"#16a34a"}}>✓ All products have recent orders — great!</p>
-          : (
-            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {slowMovers.map(p => (
-                <div key={p.slug} className="flex items-center gap-3 p-3 rounded-[12px]" style={{background:"#fff8f5", border:"1px solid #f5c8be"}}>
-                  <img src={p.image_url} alt={p.name} className="w-10 h-10 rounded-[8px] object-cover flex-shrink-0 bg-[#f5f0e8]" />
-                  <div className="min-w-0">
-                    <div className="font-[600] text-[12px] truncate">{p.name}</div>
-                    <div className="text-[11px]" style={{color:"#9b9589"}}>{p.category}</div>
-                    <div className="text-[11px] font-[600]" style={{color:"#a43a25"}}>
-                      Last: {fmt(p.last_ordered)}
-                    </div>
-                  </div>
+      {slowMovers.length > 0 && (
+        <div className="bg-white rounded-[16px] p-6" style={{ border:"1px solid #ebe2d2" }}>
+          <h3 className="font-[700] text-[15px] mb-4" style={{ fontFamily:'"Playfair Display",Georgia,serif' }}>Slow-Moving Products</h3>
+          <div className="space-y-3">
+            {slowMovers.map(p => (
+              <div key={p.slug} className="flex items-center gap-3">
+                <img src={p.image_url} alt={p.name} className="w-10 h-10 rounded-[8px] object-cover" style={{ border:"1px solid #ebe2d2" }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-[600] truncate">{p.name}</p>
+                  <p className="text-[11px]" style={{ color:"#9b9589" }}>Last ordered: {fmt(p.last_ordered)}</p>
                 </div>
-              ))}
-            </div>
-          )
-        }
-      </div>
+                <span className="text-[11px] px-2 py-1 rounded-full" style={{ background:"#fff0ee", color:"#a43a25", fontWeight:600 }}>slow</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Recent Orders ── */}
-      <div className="bg-white rounded-[16px] p-6" style={{ border:"1px solid #ebe2d2" }}>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-[700] text-[14px]">Recent Orders</h3>
-          <span className="text-[11px]" style={{color:"#9b9589"}}>Latest 10</span>
-        </div>
-        {recentOrders.length === 0
-          ? <p className="text-[13px]" style={{color:"#9b9589"}}>No orders yet.</p>
-          : (
-            <div className="space-y-2">
-              {recentOrders.map(o => (
-                <div key={o.id} className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-[12px]" style={{background:"#fafaf8", border:"1px solid #ebe2d2"}}>
-                  <StatusBadge s={o.status} />
-                  <div className="flex-1 min-w-0">
-                    <span className="font-[600] text-[13px]">{o.name}</span>
-                    <span className="text-[12px] ml-2" style={{color:"#6f6a62"}}>{o.county}{o.town ? `, ${o.town}` : ""}</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-[12px]">
-                    {o.mpesa_ref
-                      ? <span className="font-mono px-2 py-0.5 rounded-[6px]" style={{background:"#f0fdf4",color:"#16a34a",border:"1px solid #bbf7d0"}}>{o.mpesa_ref}</span>
-                      : <span className="font-mono px-2 py-0.5 rounded-[6px]" style={{background:"#fefce8",color:"#a16207",border:"1px solid #fde68a"}}>no ref</span>
-                    }
-                    <span className="font-[700]" style={{color:"#B84A32"}}>{kes(o.total_kes)}</span>
-                    <span style={{color:"#9b9589"}}>{timeAgo(o.created_at)}</span>
-                  </div>
+      {recentOrders.length > 0 && (
+        <div className="bg-white rounded-[16px] p-6" style={{ border:"1px solid #ebe2d2" }}>
+          <h3 className="font-[700] text-[15px] mb-4" style={{ fontFamily:'"Playfair Display",Georgia,serif' }}>Recent Orders</h3>
+          <div className="space-y-2">
+            {recentOrders.slice(0, 8).map(o => (
+              <div key={o.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 rounded-[10px]" style={{ background:"#f8f4ef" }}>
+                <div>
+                  <span className="text-[13px] font-[600]">{o.name}</span>
+                  <span className="text-[12px] ml-2" style={{ color:"#9b9589" }}>{o.county}</span>
                 </div>
-              ))}
-            </div>
-          )
-        }
-      </div>
+                <div className="flex items-center gap-2">
+                  <StatusBadge s={o.status} />
+                  <span className="text-[13px] font-[700]">{kes(o.total_kes)}</span>
+                  <span className="text-[11px]" style={{ color:"#9b9589" }}>{timeAgo(o.created_at)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -505,931 +538,1011 @@ function DashboardTab({ showToast }: { showToast: (m:string) => void }) {
 /* ════════════════════════════════════════════════
    COLOURS TAB
 ════════════════════════════════════════════════ */
-const blankColour = (): Omit<AdminColour,"id"> => ({ code:"", name:"", hex:"#B84A32", family:"Neutrals" });
-
-function ColoursTab({ showToast }: { showToast: (m: string) => void }) {
+function ColoursTab({ showToast }: { showToast: (m:string) => void }) {
   const [colours, setColours] = useState<AdminColour[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<AdminColour | null>(null);
-  const [adding,  setAdding]  = useState(false);
-  const [draft,   setDraft]   = useState(blankColour());
-  const [saving,  setSaving]  = useState(false);
-  const [confirm, setConfirm] = useState<string|null>(null);
-  const [search,  setSearch]  = useState("");
-  const [fam,     setFam]     = useState("All");
+  const [modal, setModal]     = useState<"new"|AdminColour|null>(null);
+  const [search, setSearch]   = useState("");
+  const [filterFamily, setFilterFamily] = useState("");
 
   const load = useCallback(async () => {
+    setLoading(true);
     try { setColours(await api("/api/admin/colours")); }
-    catch (e) { showToast(`Error: ${e}`); }
+    catch (e) { showToast(`${e}`); }
     finally { setLoading(false); }
   }, [showToast]);
 
   useEffect(() => { load(); }, [load]);
 
-  const openEdit = (c: AdminColour) => { setEditing(c); setDraft({ code:c.code, name:c.name, hex:c.hex, family:c.family }); };
-  const openAdd  = () => { setAdding(true); setDraft(blankColour()); };
-  const closeModal = () => { setEditing(null); setAdding(false); };
+  const filtered = colours.filter(c => {
+    const q = search.toLowerCase();
+    const matchSearch = !q || c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q) || c.family.toLowerCase().includes(q);
+    const matchFamily = !filterFamily || c.family === filterFamily;
+    return matchSearch && matchFamily;
+  });
 
-  const save = async () => {
-    setSaving(true);
-    try {
-      if (adding) {
-        const row = await api("/api/admin/colours", { method:"POST", body: JSON.stringify(draft) });
-        setColours(prev => [...prev, row]);
-        showToast(`✓ Added ${row.name}`);
-      } else if (editing) {
-        const row = await api("/api/admin/colours", { method:"PUT", body: JSON.stringify({ id: editing.id, ...draft }) });
-        setColours(prev => prev.map(c => c.id===row.id ? row : c));
-        showToast(`✓ Saved ${row.name}`);
-      }
-      closeModal();
-    } catch (e) { showToast(`Error: ${e}`); }
-    finally { setSaving(false); }
-  };
-
-  const del = async (id: string) => {
-    try {
-      await api("/api/admin/colours", { method:"DELETE", body: JSON.stringify({ id }) });
-      setColours(prev => prev.filter(c => c.id!==id));
-      showToast("✓ Colour deleted");
-    } catch (e) { showToast(`Error: ${e}`); }
-    setConfirm(null);
-  };
-
-  const filtered = colours
-    .filter(c => fam==="All" || c.family===fam)
-    .filter(c => !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.hex.toLowerCase().includes(search.toLowerCase()));
-
-  const byFamily = FAMILIES.reduce<Record<string, AdminColour[]>>((acc, f) => {
-    acc[f] = filtered.filter(c => c.family===f);
-    return acc;
-  }, {});
+  const grouped = FAMILIES.map(f => ({ family:f, items: filtered.filter(c => c.family===f) })).filter(g => g.items.length > 0);
 
   if (loading) return <Spinner />;
 
   return (
-    <div>
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <div>
-          <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>Colours</h2>
-          <p className="text-[13px] mt-0.5" style={{ color:"#6f6a62" }}>{colours.length} colours across {FAMILIES.length} families</p>
-        </div>
-        <Btn onClick={openAdd}>+ Add colour</Btn>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:22, fontWeight:600 }}>Colours <span className="text-[#9b9589] text-[16px] font-normal">({colours.length})</span></h2>
+        <Btn onClick={() => setModal("new")}>+ Add colour</Btn>
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-6">
-        <input className={inp + " max-w-[220px]"} placeholder="Search name or hex…" value={search} onChange={e=>setSearch(e.target.value)} />
-        <select className={sel + " w-auto"} value={fam} onChange={e=>setFam(e.target.value)}>
-          <option value="All">All families</option>
-          {FAMILIES.map(f => <option key={f}>{f}</option>)}
+      {/* search + filter */}
+      <div className="flex flex-wrap gap-3">
+        <div className="flex-1 min-w-[200px]">
+          <SearchBar value={search} onChange={setSearch} placeholder="Search by name, code, family…" />
+        </div>
+        <select className={sel + " w-auto"} value={filterFamily} onChange={e => setFilterFamily(e.target.value)}>
+          <option value="">All families</option>
+          {FAMILIES.map(f => <option key={f} value={f}>{f}</option>)}
         </select>
       </div>
 
-      {fam==="All" ? (
-        FAMILIES.map(f => byFamily[f].length ? (
-          <div key={f} className="mb-8">
-            <h3 className="text-[12px] font-[700] uppercase tracking-widest mb-3" style={{ color:"#9b9589" }}>{f}</h3>
-            <ColourGrid colours={byFamily[f]} onEdit={openEdit} onDelete={id=>setConfirm(id)} />
-          </div>
-        ) : null)
-      ) : (
-        <ColourGrid colours={filtered} onEdit={openEdit} onDelete={id=>setConfirm(id)} />
+      {filtered.length === 0 && (
+        <p className="text-[13px] py-8 text-center" style={{ color:"#9b9589" }}>No colours match your search.</p>
       )}
 
-      {(editing||adding) && (
-        <Modal title={adding ? "Add colour" : `Edit - ${editing!.name}`} onClose={closeModal}>
-          <div className="space-y-4">
-            <div className="flex items-center gap-4 p-4 rounded-[14px]" style={{ background:"#f5f0e8" }}>
-              <div className="relative">
-                <div className="w-16 h-16 rounded-[14px] shadow-md" style={{ background: draft.hex }} />
-                <input type="color" value={draft.hex}
-                  onChange={e => setDraft(d => ({...d, hex: e.target.value}))}
-                  className="absolute inset-0 opacity-0 w-full h-full cursor-pointer" title="Pick colour" />
-              </div>
-              <div>
-                <div className="font-[700] text-[15px]">{draft.name||"New colour"}</div>
-                <div className="text-[13px] font-mono mt-0.5" style={{ color:"#6f6a62" }}>{draft.hex.toUpperCase()}</div>
-                <div className="text-[11px] mt-0.5" style={{ color:"#9b9589" }}>Click swatch to pick colour</div>
-              </div>
-            </div>
-            <Field label="Hex code">
-              <input className={inp} value={draft.hex} onChange={e=>setDraft(d=>({...d,hex:e.target.value}))} placeholder="#B84A32" maxLength={7} />
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Display name">
-                <input className={inp} value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))} placeholder="Masai Red" />
-              </Field>
-              <Field label="Code (e.g. col_10)">
-                <input className={inp} value={draft.code} onChange={e=>setDraft(d=>({...d,code:e.target.value}))} placeholder="col_10" />
-              </Field>
-            </div>
-            <Field label="Family">
-              <select className={sel} value={draft.family} onChange={e=>setDraft(d=>({...d,family:e.target.value}))}>
-                {FAMILIES.map(f=><option key={f}>{f}</option>)}
-              </select>
-            </Field>
-            <div className="flex gap-2 pt-2">
-              <Btn onClick={closeModal} variant="outline">Cancel</Btn>
-              <Btn onClick={save} disabled={saving||!draft.name||!draft.hex}>
-                {saving ? "Saving…" : adding ? "Add colour" : "Save changes"}
-              </Btn>
-            </div>
+      {grouped.map(g => (
+        <div key={g.family}>
+          <h3 className="text-[12px] font-[700] uppercase tracking-wide mb-3" style={{ color:"#9b9589" }}>{g.family}</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {g.items.map(c => (
+              <button key={c.id} onClick={() => setModal(c)}
+                className="bg-white rounded-[14px] p-3 text-left hover:shadow-md transition" style={{ border:"1px solid #ebe2d2" }}>
+                <div className="w-full h-12 rounded-[8px] mb-2" style={{ background: c.hex, border:"1px solid rgba(0,0,0,0.08)" }} />
+                <p className="text-[12px] font-[700] truncate">{c.name}</p>
+                <p className="text-[11px] mt-0.5" style={{ color:"#9b9589" }}>{c.code}</p>
+              </button>
+            ))}
           </div>
-        </Modal>
-      )}
+        </div>
+      ))}
 
-      {confirm && (
-        <Modal title="Delete colour?" onClose={()=>setConfirm(null)}>
-          <p className="text-[13px] mb-5" style={{ color:"#6f6a62" }}>
-            This will remove the colour from the palette. Any product-colour associations will also be deleted.
-          </p>
-          <div className="flex gap-2">
-            <Btn variant="outline" onClick={()=>setConfirm(null)}>Cancel</Btn>
-            <Btn variant="danger" onClick={()=>del(confirm!)}>Delete</Btn>
-          </div>
-        </Modal>
+      {modal && (
+        <ColourModal
+          colour={modal === "new" ? null : modal}
+          onClose={() => setModal(null)}
+          onSaved={() => { setModal(null); load(); showToast(modal === "new" ? "Colour added" : "Colour updated"); }}
+          onDeleted={() => { setModal(null); load(); showToast("Colour deleted"); }}
+          showToast={showToast}
+        />
       )}
     </div>
   );
 }
 
-function ColourGrid({ colours, onEdit, onDelete }: {
-  colours: AdminColour[]; onEdit: (c: AdminColour)=>void; onDelete:(id:string)=>void;
+function ColourModal({ colour, onClose, onSaved, onDeleted, showToast }: {
+  colour: AdminColour | null; onClose: () => void; onSaved: () => void; onDeleted: () => void; showToast: (m:string) => void;
 }) {
+  const [form, setForm] = useState({ code: colour?.code ?? "", name: colour?.name ?? "", hex: colour?.hex ?? "#ffffff", family: colour?.family ?? FAMILIES[0] });
+  const [saving, setSaving] = useState(false);
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement|HTMLSelectElement>) => setForm(f => ({ ...f, [k]: e.target.value }));
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault(); setSaving(true);
+    try {
+      if (colour) await api(`/api/admin/colours/${colour.id}`, { method:"PATCH", body: JSON.stringify(form) });
+      else        await api("/api/admin/colours", { method:"POST", body: JSON.stringify(form) });
+      onSaved();
+    } catch (err) { showToast(`${err}`); }
+    finally { setSaving(false); }
+  };
+
+  const del = async () => {
+    if (!colour || !confirm(`Delete ${colour.name}?`)) return;
+    try { await api(`/api/admin/colours/${colour.id}`, { method:"DELETE" }); onDeleted(); }
+    catch (err) { showToast(`${err}`); }
+  };
+
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-      {colours.map(c => (
-        <div key={c.id} className="bg-white rounded-[14px] overflow-hidden shadow-sm group" style={{ border:"1px solid #ebe2d2" }}>
-          <div className="h-20 w-full" style={{ background: c.hex }} />
-          <div className="p-3">
-            <div className="font-[600] text-[12px] leading-tight truncate">{c.name}</div>
-            <div className="text-[11px] font-mono mt-0.5" style={{ color:"#6f6a62" }}>{c.hex.toUpperCase()}</div>
-            <div className="text-[10px] mt-0.5" style={{ color:"#9b9589" }}>{c.code} · {c.family}</div>
-            <div className="flex gap-1 mt-2">
-              <button onClick={()=>onEdit(c)} className="flex-1 py-1 rounded-[7px] text-[11px] font-[600] transition hover:bg-[#f5ede3]" style={{ border:"1px solid #e3d5bc", color:"#6f6a62" }}>Edit</button>
-              <button onClick={()=>onDelete(c.id)} className="px-2 py-1 rounded-[7px] text-[11px] font-[600] transition hover:bg-[#fff0ee]" style={{ border:"1px solid #f5c8be", color:"#a43a25" }}>✕</button>
-            </div>
+    <Modal title={colour ? "Edit Colour" : "New Colour"} onClose={onClose}>
+      <form onSubmit={save} className="space-y-4">
+        <Field label="Code"><input className={inp} value={form.code} onChange={set("code")} placeholder="e.g. MM-001" required /></Field>
+        <Field label="Name"><input className={inp} value={form.name} onChange={set("name")} placeholder="e.g. Masai Red" required /></Field>
+        <Field label="Family">
+          <select className={sel} value={form.family} onChange={set("family")}>
+            {FAMILIES.map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
+        </Field>
+        <Field label="Hex colour">
+          <div className="flex gap-2 items-center">
+            <input type="color" value={form.hex} onChange={set("hex")} className="w-10 h-10 rounded cursor-pointer border border-[#d8ccb8]" />
+            <input className={inp} value={form.hex} onChange={set("hex")} placeholder="#B84A32" />
           </div>
+        </Field>
+        <div className="flex gap-2 pt-2">
+          <Btn type="submit" disabled={saving}>{saving ? "Saving…" : colour ? "Save changes" : "Add colour"}</Btn>
+          {colour && <Btn variant="danger" onClick={del}>Delete</Btn>}
         </div>
-      ))}
-    </div>
+      </form>
+    </Modal>
   );
 }
 
 /* ════════════════════════════════════════════════
    PRODUCTS TAB
 ════════════════════════════════════════════════ */
-const blankProduct = (): Omit<AdminProduct,"id"|"variants"> => ({
-  slug:"", name:"", blurb:"", category:"Paint", image_url:"",
-});
-
-function ProductsTab({ showToast }: { showToast: (m:string)=>void }) {
+function ProductsTab({ showToast }: { showToast: (m:string) => void }) {
   const [products, setProducts] = useState<AdminProduct[]>([]);
-  const [loading,  setLoading]  = useState(true);
-  const [editing,  setEditing]  = useState<AdminProduct|null>(null);
-  const [adding,   setAdding]   = useState(false);
-  const [draft,    setDraft]    = useState<Omit<AdminProduct,"id"|"variants">>(blankProduct());
-  const [prices,   setPrices]   = useState<Record<string,number>>({});
-  const [saving,   setSaving]   = useState(false);
-  const [confirm,  setConfirm]  = useState<string|null>(null);
+  const [loading, setLoading]   = useState(true);
+  const [modal, setModal]       = useState<"new"|AdminProduct|null>(null);
+  const [search, setSearch]     = useState("");
+  const [filterCat, setFilterCat] = useState("");
 
   const load = useCallback(async () => {
+    setLoading(true);
     try { setProducts(await api("/api/admin/products")); }
-    catch (e) { showToast(`Error: ${e}`); }
+    catch (e) { showToast(`${e}`); }
     finally { setLoading(false); }
   }, [showToast]);
 
   useEffect(() => { load(); }, [load]);
 
-  const openEdit = (p: AdminProduct) => {
-    setEditing(p);
-    setDraft({ slug:p.slug, name:p.name, blurb:p.blurb, category:p.category, image_url:p.image_url });
-    const priceMap: Record<string,number> = {};
-    p.variants.forEach(v => { priceMap[v.id] = v.price_kes; });
-    setPrices(priceMap);
-  };
-  const openAdd  = () => { setAdding(true); setDraft(blankProduct()); setPrices({}); };
-  const closeModal = () => { setEditing(null); setAdding(false); };
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      if (adding) {
-        const d = { ...draft, slug: draft.slug || slug(draft.name) };
-        const row = await api("/api/admin/products", { method:"POST", body: JSON.stringify(d) });
-        setProducts(prev => [...prev, { ...row, variants:[] }]);
-        showToast(`✓ Added ${row.name}`);
-      } else if (editing) {
-        const row = await api("/api/admin/products", { method:"PUT", body: JSON.stringify({ id:editing.id, ...draft }) });
-        await Promise.all(
-          editing.variants.map(v =>
-            prices[v.id] !== undefined && prices[v.id] !== v.price_kes
-              ? api("/api/admin/variants", { method:"PUT", body: JSON.stringify({ id:v.id, price_kes: prices[v.id] }) })
-              : Promise.resolve()
-          )
-        );
-        const updatedVariants = editing.variants.map(v => ({ ...v, price_kes: prices[v.id] ?? v.price_kes }));
-        setProducts(prev => prev.map(p => p.id===editing.id ? { ...row, variants: updatedVariants } : p));
-        showToast(`✓ Saved ${row.name}`);
-      }
-      closeModal();
-    } catch (e) { showToast(`Error: ${e}`); }
-    finally { setSaving(false); }
-  };
-
-  const del = async (id: string) => {
-    try {
-      await api("/api/admin/products", { method:"DELETE", body: JSON.stringify({ id }) });
-      setProducts(prev => prev.filter(p => p.id!==id));
-      showToast("✓ Product deleted");
-    } catch (e) { showToast(`Error: ${e}`); }
-    setConfirm(null);
-  };
+  const filtered = products.filter(p => {
+    const q = search.toLowerCase();
+    const matchSearch = !q || p.name.toLowerCase().includes(q) || p.slug.toLowerCase().includes(q) || p.category.toLowerCase().includes(q);
+    const matchCat = !filterCat || p.category === filterCat;
+    return matchSearch && matchCat;
+  });
 
   if (loading) return <Spinner />;
 
-  const byCategory = CATEGORIES.reduce<Record<string,AdminProduct[]>>((acc,c)=>{
-    acc[c] = products.filter(p=>p.category===c); return acc;
-  },{});
-
   return (
-    <div>
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <div>
-          <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>Products</h2>
-          <p className="text-[13px] mt-0.5" style={{ color:"#6f6a62" }}>{products.length} products · prices in KES</p>
-        </div>
-        <Btn onClick={openAdd}>+ Add product</Btn>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:22, fontWeight:600 }}>Products <span className="text-[#9b9589] text-[16px] font-normal">({products.length})</span></h2>
+        <Btn onClick={() => setModal("new")}>+ Add product</Btn>
       </div>
 
-      {CATEGORIES.map(cat => byCategory[cat].length ? (
-        <div key={cat} className="mb-8">
-          <h3 className="text-[12px] font-[700] uppercase tracking-widest mb-3" style={{ color:"#9b9589" }}>{cat}</h3>
-          <div className="space-y-3">
-            {byCategory[cat].map(p => (
-              <div key={p.id} className="bg-white rounded-[16px] p-4 flex gap-4 items-start" style={{ border:"1px solid #ebe2d2" }}>
-                <img src={p.image_url} alt={p.name} className="w-20 h-14 object-cover rounded-[10px] flex-shrink-0 bg-[#f5f0e8]" />
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-[700] text-[14px]">{p.name}</span>
-                    <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background:"#f5ede3", color:"#B84A32" }}>{p.category}</span>
-                  </div>
-                  <p className="text-[12px] mt-1 line-clamp-2" style={{ color:"#6f6a62" }}>{p.blurb}</p>
-                  <div className="flex gap-3 mt-2">
-                    {p.variants.map(v => (
-                      <span key={v.id} className="text-[11px] font-[600]" style={{ color:"#2B2B2E" }}>
-                        {v.size}: <span style={{ color:"#B84A32" }}>{kes(v.price_kes)}</span>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex gap-1 flex-shrink-0">
-                  <Btn size="sm" variant="outline" onClick={()=>openEdit(p)}>Edit</Btn>
-                  <Btn size="sm" variant="danger" onClick={()=>setConfirm(p.id)}>✕</Btn>
-                </div>
+      <div className="flex flex-wrap gap-3">
+        <div className="flex-1 min-w-[200px]">
+          <SearchBar value={search} onChange={setSearch} placeholder="Search by name, slug, category…" />
+        </div>
+        <select className={sel + " w-auto"} value={filterCat} onChange={e => setFilterCat(e.target.value)}>
+          <option value="">All categories</option>
+          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
+
+      {filtered.length === 0 && (
+        <p className="text-[13px] py-8 text-center" style={{ color:"#9b9589" }}>No products match your search.</p>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {filtered.map(p => (
+          <button key={p.id} onClick={() => setModal(p)}
+            className="bg-white rounded-[16px] p-4 text-left hover:shadow-md transition" style={{ border:"1px solid #ebe2d2" }}>
+            <img src={p.image_url} alt={p.name} className="w-full h-32 object-cover rounded-[10px] mb-3" style={{ border:"1px solid #ebe2d2" }} />
+            <p className="text-[14px] font-[700]">{p.name}</p>
+            <p className="text-[11px] mt-0.5" style={{ color:"#9b9589" }}>{p.category} · {p.variants.length} variant{p.variants.length!==1?"s":""}</p>
+            <p className="text-[12px] mt-1 line-clamp-2" style={{ color:"#6f6a62" }}>{p.blurb}</p>
+          </button>
+        ))}
+      </div>
+
+      {modal && (
+        <ProductModal
+          product={modal === "new" ? null : modal}
+          onClose={() => setModal(null)}
+          onSaved={() => { setModal(null); load(); showToast(modal === "new" ? "Product added" : "Product updated"); }}
+          onDeleted={() => { setModal(null); load(); showToast("Product deleted"); }}
+          showToast={showToast}
+        />
+      )}
+    </div>
+  );
+}
+
+function ProductModal({ product, onClose, onSaved, onDeleted, showToast }: {
+  product: AdminProduct | null; onClose: () => void; onSaved: () => void; onDeleted: () => void; showToast: (m:string) => void;
+}) {
+  const [form, setForm] = useState({
+    name: product?.name ?? "", slug: product?.slug ?? "", blurb: product?.blurb ?? "",
+    category: product?.category ?? CATEGORIES[0], image_url: product?.image_url ?? "",
+  });
+  const [variants, setVariants] = useState<Omit<AdminVariant,"product_id">[]>(product?.variants ?? []);
+  const [saving, setSaving] = useState(false);
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>) =>
+    setForm(f => ({ ...f, [k]: e.target.value }));
+
+  const autoSlug = () => setForm(f => ({ ...f, slug: slug(f.name) }));
+
+  const addVariant = () => setVariants(v => [...v, { id: `new-${Date.now()}`, size:"1L", price_kes:0 }]);
+  const updateVariant = (i: number, k: "size"|"price_kes", v: string|number) =>
+    setVariants(arr => arr.map((x,j) => j===i ? { ...x, [k]:v } : x));
+  const removeVariant = (i: number) => setVariants(arr => arr.filter((_,j) => j!==i));
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault(); setSaving(true);
+    try {
+      const body = { ...form, variants };
+      if (product) await api(`/api/admin/products/${product.id}`, { method:"PATCH", body: JSON.stringify(body) });
+      else         await api("/api/admin/products", { method:"POST", body: JSON.stringify(body) });
+      onSaved();
+    } catch (err) { showToast(`${err}`); }
+    finally { setSaving(false); }
+  };
+
+  const del = async () => {
+    if (!product || !confirm(`Delete ${product.name}?`)) return;
+    try { await api(`/api/admin/products/${product.id}`, { method:"DELETE" }); onDeleted(); }
+    catch (err) { showToast(`${err}`); }
+  };
+
+  return (
+    <Modal title={product ? "Edit Product" : "New Product"} onClose={onClose} wide>
+      <form onSubmit={save} className="space-y-4">
+        <Field label="Name">
+          <input className={inp} value={form.name} onChange={set("name")} onBlur={() => !product && autoSlug()} required />
+        </Field>
+        <Field label="Slug" hint="Auto-generated from name. URL-safe.">
+          <input className={inp} value={form.slug} onChange={set("slug")} required />
+        </Field>
+        <Field label="Category">
+          <select className={sel} value={form.category} onChange={set("category")}>
+            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </Field>
+        <Field label="Blurb">
+          <textarea className={inp} rows={3} value={form.blurb} onChange={set("blurb")} />
+        </Field>
+        <Field label="Image URL">
+          <input className={inp} value={form.image_url} onChange={set("image_url")} placeholder="https://…" />
+        </Field>
+
+        {/* variants */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-[700] uppercase tracking-wide" style={{ color:"#6f6a62" }}>Variants (size & price)</span>
+            <Btn size="sm" variant="outline" onClick={addVariant}>+ Add</Btn>
+          </div>
+          <div className="space-y-2">
+            {variants.map((v, i) => (
+              <div key={v.id} className="flex gap-2 items-center">
+                <input className={inp} value={v.size} placeholder="e.g. 4L" onChange={e => updateVariant(i,"size",e.target.value)} />
+                <input className={inp} type="number" value={v.price_kes} placeholder="Price KES" onChange={e => updateVariant(i,"price_kes",Number(e.target.value))} />
+                <button type="button" onClick={() => removeVariant(i)} className="text-[#a43a25] hover:text-[#7a2510] text-[18px] leading-none">×</button>
               </div>
             ))}
           </div>
         </div>
-      ) : null)}
 
-      {(editing||adding) && (
-        <Modal title={adding ? "Add product" : `Edit - ${editing!.name}`} onClose={closeModal} wide>
-          <div className="space-y-4">
-            <div className="grid sm:grid-cols-2 gap-3">
-              <Field label="Product name">
-                <input className={inp} value={draft.name}
-                  onChange={e=>setDraft(d=>({...d, name:e.target.value, slug: slug(e.target.value)}))}
-                  placeholder="Keekorok Matte Emulsion" />
-              </Field>
-              <Field label="Slug (URL key)" hint="Auto-generated from name">
-                <input className={inp} value={draft.slug} onChange={e=>setDraft(d=>({...d,slug:e.target.value}))} placeholder="keekorok-matte-emulsion" />
-              </Field>
-            </div>
-            <Field label="Short description">
-              <textarea className={inp + " resize-none"} rows={2} value={draft.blurb}
-                onChange={e=>setDraft(d=>({...d,blurb:e.target.value}))} placeholder="Ultra-smooth zero-sheen interior wall paint…" />
-            </Field>
-            <div className="grid sm:grid-cols-2 gap-3">
-              <Field label="Category">
-                <select className={sel} value={draft.category} onChange={e=>setDraft(d=>({...d,category:e.target.value}))}>
-                  {CATEGORIES.map(c=><option key={c}>{c}</option>)}
-                </select>
-              </Field>
-              <Field label="Image URL">
-                <input className={inp} value={draft.image_url} onChange={e=>setDraft(d=>({...d,image_url:e.target.value}))} placeholder="https://…" />
-              </Field>
-            </div>
-            {draft.image_url && (
-              <img src={draft.image_url} alt="" className="w-full h-40 object-cover rounded-[12px]" onError={e=>(e.currentTarget.style.display="none")} />
-            )}
-            {editing && editing.variants.length > 0 && (
-              <div>
-                <div className="text-[12px] font-[700] uppercase tracking-wide mb-3" style={{ color:"#6f6a62" }}>Pricing (KES)</div>
-                <div className="grid grid-cols-3 gap-3">
-                  {editing.variants.map(v => (
-                    <Field key={v.id} label={v.size}>
-                      <input type="number" className={inp} value={prices[v.id] ?? v.price_kes}
-                        onChange={e=>setPrices(p=>({...p,[v.id]:parseInt(e.target.value)||0}))}
-                        min={0} step={50} />
-                    </Field>
-                  ))}
-                </div>
-              </div>
-            )}
-            <div className="flex gap-2 pt-2">
-              <Btn variant="outline" onClick={closeModal}>Cancel</Btn>
-              <Btn onClick={save} disabled={saving||!draft.name}>
-                {saving ? "Saving…" : adding ? "Add product" : "Save changes"}
-              </Btn>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {confirm && (
-        <Modal title="Delete product?" onClose={()=>setConfirm(null)}>
-          <p className="text-[13px] mb-5" style={{ color:"#6f6a62" }}>This will permanently delete the product and all its size variants.</p>
-          <div className="flex gap-2">
-            <Btn variant="outline" onClick={()=>setConfirm(null)}>Cancel</Btn>
-            <Btn variant="danger" onClick={()=>del(confirm!)}>Delete</Btn>
-          </div>
-        </Modal>
-      )}
-    </div>
+        <div className="flex gap-2 pt-2">
+          <Btn type="submit" disabled={saving}>{saving ? "Saving…" : product ? "Save changes" : "Add product"}</Btn>
+          {product && <Btn variant="danger" onClick={del}>Delete</Btn>}
+        </div>
+      </form>
+    </Modal>
   );
 }
 
 /* ════════════════════════════════════════════════
    ROOMS TAB
 ════════════════════════════════════════════════ */
-const blankRoom = (): Omit<AdminRoom,"id"> => ({ name:"", photo_url:"", wall_mask:"", sort_order:99 });
-
-function RoomsTab({ showToast }: { showToast: (m:string)=>void }) {
-  const [rooms,   setRooms]   = useState<AdminRoom[]>([]);
+function RoomsTab({ showToast }: { showToast: (m:string) => void }) {
+  const [rooms, setRooms]   = useState<AdminRoom[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<AdminRoom|null>(null);
-  const [adding,  setAdding]  = useState(false);
-  const [draft,   setDraft]   = useState<Omit<AdminRoom,"id">>(blankRoom());
-  const [saving,  setSaving]  = useState(false);
-  const [confirm, setConfirm] = useState<string|null>(null);
+  const [modal, setModal]   = useState<"new"|AdminRoom|null>(null);
 
   const load = useCallback(async () => {
+    setLoading(true);
     try { setRooms(await api("/api/admin/rooms")); }
-    catch (e) { showToast(`Error: ${e}`); }
+    catch (e) { showToast(`${e}`); }
     finally { setLoading(false); }
   }, [showToast]);
 
   useEffect(() => { load(); }, [load]);
 
-  const openEdit = (r: AdminRoom) => { setEditing(r); setDraft({ name:r.name, photo_url:r.photo_url, wall_mask:r.wall_mask??"", sort_order:r.sort_order }); };
-  const openAdd  = () => { setAdding(true); setDraft(blankRoom()); };
-  const closeModal = () => { setEditing(null); setAdding(false); };
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      if (adding) {
-        const row = await api("/api/admin/rooms", { method:"POST", body: JSON.stringify(draft) });
-        setRooms(prev=>[...prev,row]);
-        showToast(`✓ Added ${row.name}`);
-      } else if (editing) {
-        const row = await api("/api/admin/rooms", { method:"PUT", body: JSON.stringify({ id:editing.id, ...draft }) });
-        setRooms(prev=>prev.map(r=>r.id===row.id?row:r));
-        showToast(`✓ Saved ${row.name}`);
-      }
-      closeModal();
-    } catch (e) { showToast(`Error: ${e}`); }
-    finally { setSaving(false); }
-  };
-
-  const del = async (id: string) => {
-    try {
-      await api("/api/admin/rooms", { method:"DELETE", body: JSON.stringify({ id }) });
-      setRooms(prev=>prev.filter(r=>r.id!==id));
-      showToast("✓ Room deleted");
-    } catch (e) { showToast(`Error: ${e}`); }
-    setConfirm(null);
-  };
-
   if (loading) return <Spinner />;
 
   return (
-    <div>
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <div>
-          <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>Rooms</h2>
-          <p className="text-[13px] mt-0.5" style={{ color:"#6f6a62" }}>{rooms.length} rooms · shown in the visualizer</p>
-        </div>
-        <Btn onClick={openAdd}>+ Add room</Btn>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:22, fontWeight:600 }}>Rooms <span className="text-[#9b9589] text-[16px] font-normal">({rooms.length})</span></h2>
+        <Btn onClick={() => setModal("new")}>+ Add room</Btn>
       </div>
-
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {rooms.map(r => (
-          <div key={r.id} className="bg-white rounded-[16px] overflow-hidden" style={{ border:"1px solid #ebe2d2" }}>
-            <div className="relative">
-              <img src={r.photo_url} alt={r.name} className="w-full h-44 object-cover bg-[#f5f0e8]" />
-              {r.wall_mask && (
-                <svg className="absolute inset-0 w-full h-full" style={{ pointerEvents:"none" }} preserveAspectRatio="none">
-                  <polygon points={r.wall_mask.split(" ").map(pt => {
-                    const [x,y]=pt.split(","); return `${parseFloat(x)*100}%,${parseFloat(y)*100}%`;
-                  }).join(" ")} fill="rgba(184,74,50,0.25)" stroke="#B84A32" strokeWidth="1.5" />
-                </svg>
-              )}
-              <div className="absolute top-2 left-2 px-2 py-1 rounded-full text-[10px] font-[700]"
-                style={{ background:"rgba(255,255,255,.9)", color:"#2B2B2E" }}>
-                #{r.sort_order} · {r.wall_mask ? "Mask set" : "No mask"}
-              </div>
-            </div>
+          <button key={r.id} onClick={() => setModal(r)}
+            className="bg-white rounded-[16px] overflow-hidden text-left hover:shadow-md transition" style={{ border:"1px solid #ebe2d2" }}>
+            <img src={r.photo_url} alt={r.name} className="w-full h-40 object-cover" />
             <div className="p-4">
-              <div className="font-[700] text-[14px]">{r.name}</div>
-              <p className="text-[11px] mt-1 truncate" style={{ color:"#9b9589" }}>{r.photo_url}</p>
-              <div className="flex gap-1 mt-3">
-                <Btn size="sm" variant="outline" onClick={()=>openEdit(r)}>Edit</Btn>
-                <Btn size="sm" variant="danger" onClick={()=>setConfirm(r.id)}>Delete</Btn>
-              </div>
+              <p className="text-[14px] font-[700]">{r.name}</p>
+              <p className="text-[11px] mt-0.5" style={{ color:"#9b9589" }}>Sort: {r.sort_order}</p>
             </div>
-          </div>
+          </button>
         ))}
       </div>
-
-      {(editing||adding) && (
-        <Modal title={adding ? "Add room" : `Edit - ${editing!.name}`} onClose={closeModal} wide>
-          <div className="space-y-4">
-            <div className="grid sm:grid-cols-2 gap-3">
-              <Field label="Room name">
-                <input className={inp} value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))} placeholder="Nairobi Living Room" />
-              </Field>
-              <Field label="Sort order" hint="Lower = shown first">
-                <input type="number" className={inp} value={draft.sort_order} onChange={e=>setDraft(d=>({...d,sort_order:parseInt(e.target.value)||0}))} min={1} />
-              </Field>
-            </div>
-            <Field label="Photo URL">
-              <input className={inp} value={draft.photo_url} onChange={e=>setDraft(d=>({...d,photo_url:e.target.value}))} placeholder="https://images.pexels.com/…" />
-            </Field>
-            {draft.photo_url && (
-              <div className="relative rounded-[12px] overflow-hidden">
-                <img src={draft.photo_url} alt="" className="w-full h-48 object-cover" onError={e=>(e.currentTarget.style.display="none")} />
-                {draft.wall_mask && (
-                  <svg className="absolute inset-0 w-full h-full" style={{ pointerEvents:"none" }} preserveAspectRatio="none">
-                    <polygon points={draft.wall_mask.split(" ").map(pt=>{
-                      const [x,y]=pt.split(","); return `${parseFloat(x)*100}%,${parseFloat(y)*100}%`;
-                    }).join(" ")} fill="rgba(184,74,50,0.22)" stroke="#B84A32" strokeWidth="2" />
-                  </svg>
-                )}
-              </div>
-            )}
-            <Field
-              label="Wall mask polygon"
-              hint='Space-separated x,y pairs as 0-1 fractions. Example: "0,0.08 1,0.08 1,0.65 0,0.65"'
-            >
-              <input className={inp} value={draft.wall_mask} onChange={e=>setDraft(d=>({...d,wall_mask:e.target.value}))} placeholder="0,0.08 1,0.08 1,0.65 0,0.65" />
-            </Field>
-            <div className="flex gap-2 pt-2">
-              <Btn variant="outline" onClick={closeModal}>Cancel</Btn>
-              <Btn onClick={save} disabled={saving||!draft.name||!draft.photo_url}>
-                {saving ? "Saving…" : adding ? "Add room" : "Save changes"}
-              </Btn>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {confirm && (
-        <Modal title="Delete room?" onClose={()=>setConfirm(null)}>
-          <p className="text-[13px] mb-5" style={{ color:"#6f6a62" }}>This will permanently delete the room from the visualizer.</p>
-          <div className="flex gap-2">
-            <Btn variant="outline" onClick={()=>setConfirm(null)}>Cancel</Btn>
-            <Btn variant="danger" onClick={()=>del(confirm!)}>Delete</Btn>
-          </div>
-        </Modal>
+      {modal && (
+        <RoomModal
+          room={modal === "new" ? null : modal}
+          onClose={() => setModal(null)}
+          onSaved={() => { setModal(null); load(); showToast(modal === "new" ? "Room added" : "Room updated"); }}
+          onDeleted={() => { setModal(null); load(); showToast("Room deleted"); }}
+          showToast={showToast}
+        />
       )}
     </div>
+  );
+}
+
+function RoomModal({ room, onClose, onSaved, onDeleted, showToast }: {
+  room: AdminRoom | null; onClose: () => void; onSaved: () => void; onDeleted: () => void; showToast: (m:string) => void;
+}) {
+  const [form, setForm] = useState({
+    name: room?.name ?? "", photo_url: room?.photo_url ?? "",
+    wall_mask: room?.wall_mask ?? "", sort_order: room?.sort_order ?? 0,
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm(f => ({ ...f, [k]: k==="sort_order" ? Number(e.target.value) : e.target.value }));
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault(); setSaving(true);
+    try {
+      if (room) await api(`/api/admin/rooms/${room.id}`, { method:"PATCH", body: JSON.stringify(form) });
+      else      await api("/api/admin/rooms", { method:"POST", body: JSON.stringify(form) });
+      onSaved();
+    } catch (err) { showToast(`${err}`); }
+    finally { setSaving(false); }
+  };
+
+  const del = async () => {
+    if (!room || !confirm(`Delete ${room.name}?`)) return;
+    try { await api(`/api/admin/rooms/${room.id}`, { method:"DELETE" }); onDeleted(); }
+    catch (err) { showToast(`${err}`); }
+  };
+
+  return (
+    <Modal title={room ? "Edit Room" : "New Room"} onClose={onClose}>
+      <form onSubmit={save} className="space-y-4">
+        <Field label="Room name"><input className={inp} value={form.name} onChange={set("name")} required /></Field>
+        <Field label="Photo URL"><input className={inp} value={form.photo_url} onChange={set("photo_url")} /></Field>
+        <Field label="Wall mask URL" hint="SVG/PNG overlay for colour preview"><input className={inp} value={form.wall_mask} onChange={set("wall_mask")} /></Field>
+        <Field label="Sort order"><input className={inp} type="number" value={form.sort_order} onChange={set("sort_order")} /></Field>
+        <div className="flex gap-2 pt-2">
+          <Btn type="submit" disabled={saving}>{saving ? "Saving…" : room ? "Save changes" : "Add room"}</Btn>
+          {room && <Btn variant="danger" onClick={del}>Delete</Btn>}
+        </div>
+      </form>
+    </Modal>
   );
 }
 
 /* ════════════════════════════════════════════════
    ORDERS TAB
 ════════════════════════════════════════════════ */
-function OrdersTab({ showToast }: { showToast: (m:string)=>void }) {
-  const [orders,  setOrders]  = useState<AdminOrder[]>([]);
+function OrdersTab({ showToast }: { showToast: (m:string) => void }) {
+  const [orders, setOrders]   = useState<AdminOrder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [viewing, setViewing] = useState<AdminOrder|null>(null);
-  const [saving,  setSaving]  = useState(false);
-  const [search,  setSearch]  = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
+  const [filter, setFilter]   = useState("");
+  const [search, setSearch]   = useState("");
+  const [detail, setDetail]   = useState<AdminOrder|null>(null);
 
   const load = useCallback(async () => {
+    setLoading(true);
     try { setOrders(await api("/api/admin/orders")); }
-    catch (e) { showToast(`Error: ${e}`); }
+    catch (e) { showToast(`${e}`); }
     finally { setLoading(false); }
   }, [showToast]);
 
   useEffect(() => { load(); }, [load]);
 
-  const updateStatus = async (id: string, status: string) => {
-    setSaving(true);
-    try {
-      await api("/api/admin/orders", { method:"PUT", body: JSON.stringify({ id, status }) });
-      setOrders(prev => prev.map(o => o.id===id ? {...o, status} : o));
-      if (viewing?.id===id) setViewing(prev => prev ? {...prev, status} : null);
-      showToast(`✓ Status updated to ${status}`);
-    } catch (e) { showToast(`Error: ${e}`); }
-    finally { setSaving(false); }
+  const filtered = orders.filter(o => {
+    const matchStatus = !filter || o.status === filter;
+    const q = search.toLowerCase();
+    const matchSearch = !q || o.name.toLowerCase().includes(q) || o.phone.includes(q) || o.mpesa_ref.toLowerCase().includes(q) || o.county.toLowerCase().includes(q);
+    return matchStatus && matchSearch;
+  });
+
+  const exportOrdersCSV = () => {
+    downloadCSV("micmikes-orders.csv", filtered.map(o => ({
+      ID: o.id,
+      Name: o.name,
+      Phone: o.phone,
+      Email: o.email,
+      County: o.county,
+      Town: o.town,
+      Total_KES: o.total_kes,
+      Status: o.status,
+      MPesa_Ref: o.mpesa_ref,
+      Date: new Date(o.created_at).toLocaleDateString("en-KE"),
+    })));
   };
 
-  const filtered = orders
-    .filter(o => filterStatus==="all" || o.status===filterStatus)
-    .filter(o => !search || o.name.toLowerCase().includes(search.toLowerCase())
-      || o.email?.toLowerCase().includes(search.toLowerCase())
-      || o.phone?.includes(search)
-      || o.mpesa_ref?.toLowerCase().includes(search.toLowerCase()));
+  const updateStatus = async (id: string, status: string) => {
+    try {
+      await api(`/api/admin/orders/${id}`, { method:"PATCH", body: JSON.stringify({ status }) });
+      setOrders(prev => prev.map(o => o.id===id ? { ...o, status } : o));
+      if (detail?.id === id) setDetail(prev => prev ? { ...prev, status } : null);
+      showToast(`Status → ${status}`);
+    } catch (e) { showToast(`${e}`); }
+  };
 
   if (loading) return <Spinner />;
 
   return (
-    <div>
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <div>
-          <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>Orders</h2>
-          <p className="text-[13px] mt-0.5" style={{ color:"#6f6a62" }}>{orders.length} total orders</p>
-        </div>
-        <Btn variant="outline" onClick={load}>↻ Refresh</Btn>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:22, fontWeight:600 }}>Orders <span className="text-[#9b9589] text-[16px] font-normal">({orders.length})</span></h2>
+        <Btn variant="outline" size="sm" onClick={exportOrdersCSV}>⬇ Export CSV</Btn>
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-6">
-        <input className={inp + " max-w-[220px]"} placeholder="Search name, email, M-Pesa ref…" value={search} onChange={e=>setSearch(e.target.value)} />
-        <select className={sel + " w-auto"} value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}>
-          <option value="all">All statuses</option>
-          {STATUSES.map(s=><option key={s}>{s}</option>)}
+      <div className="flex flex-wrap gap-3">
+        <div className="flex-1 min-w-[200px]">
+          <SearchBar value={search} onChange={setSearch} placeholder="Search name, phone, M-Pesa ref, county…" />
+        </div>
+        <select className={sel + " w-auto"} value={filter} onChange={e => setFilter(e.target.value)}>
+          <option value="">All statuses</option>
+          {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
       </div>
 
+      {filtered.length === 0 && (
+        <p className="text-[13px] py-8 text-center" style={{ color:"#9b9589" }}>No orders found.</p>
+      )}
+
       <div className="space-y-2">
         {filtered.map(o => (
-          <div key={o.id} className="bg-white rounded-[14px] p-4 flex flex-wrap items-center gap-3 cursor-pointer hover:border-[#B84A32] transition"
-            style={{ border:"1px solid #ebe2d2" }} onClick={()=>setViewing(o)}>
-            <StatusBadge s={o.status} />
-            <div className="flex-1 min-w-[160px]">
-              <span className="font-[600] text-[13px]">{o.name}</span>
-              <span className="text-[12px] ml-2" style={{color:"#6f6a62"}}>{o.county}{o.town ? `, ${o.town}` : ""}</span>
+          <div key={o.id} className="bg-white rounded-[14px] px-5 py-4 flex flex-wrap items-center gap-3 cursor-pointer hover:shadow-sm transition"
+            style={{ border:"1px solid #ebe2d2" }} onClick={() => setDetail(o)}>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-[700]">{o.name}</p>
+              <p className="text-[11px] mt-0.5" style={{ color:"#9b9589" }}>{o.phone} · {o.county}, {o.town}</p>
+              {o.mpesa_ref && <p className="text-[11px] mt-0.5 font-mono" style={{ color:"#6f6a62" }}>M-Pesa: {o.mpesa_ref}</p>}
             </div>
-            <div className="flex items-center gap-3 text-[12px]">
-              {o.mpesa_ref
-                ? <span className="font-mono px-2 py-0.5 rounded-[6px]" style={{background:"#f0fdf4",color:"#16a34a",border:"1px solid #bbf7d0"}}>{o.mpesa_ref}</span>
-                : <span className="text-[11px]" style={{color:"#9b9589"}}>no M-Pesa ref</span>
-              }
-              <span className="font-[700]" style={{color:"#B84A32"}}>{kes(o.total_kes)}</span>
-              <span style={{color:"#9b9589"}}>{new Date(o.created_at).toLocaleDateString("en-KE",{day:"numeric",month:"short",year:"2-digit"})}</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge s={o.status} />
+              <span className="text-[13px] font-[700]">{kes(o.total_kes)}</span>
+              <span className="text-[11px]" style={{ color:"#9b9589" }}>{new Date(o.created_at).toLocaleDateString("en-KE",{day:"numeric",month:"short"})}</span>
             </div>
           </div>
         ))}
-        {filtered.length===0 && <p className="text-[13px] py-8 text-center" style={{color:"#9b9589"}}>No orders match your filters.</p>}
       </div>
 
-      {viewing && (
-        <Modal title={`Order — ${viewing.name}`} onClose={()=>setViewing(null)} wide>
-          <div className="space-y-5">
-            <div className="grid grid-cols-2 gap-3 text-[13px]">
-              {([
-                ["Name", viewing.name],
-                ["Email", viewing.email],
-                ["Phone", viewing.phone],
-                ["Location", [viewing.town, viewing.county, "Kenya"].filter(Boolean).join(", ")],
-                ["M-Pesa Ref", viewing.mpesa_ref || "—"],
-                ["Date", new Date(viewing.created_at).toLocaleString("en-KE")],
-              ] as [string,string][]).map(([label, val]) => (
-                <div key={label} className="p-3 rounded-[10px]" style={{background:"#f8f4ef"}}>
-                  <div className="text-[10px] font-[700] uppercase tracking-wide mb-1" style={{color:"#9b9589"}}>{label}</div>
-                  <div className="font-[500]" style={{color: label==="M-Pesa Ref" && viewing.mpesa_ref ? "#16a34a" : "#2B2B2E"}}>{val}</div>
-                </div>
-              ))}
-            </div>
-
-            <div>
-              <div className="text-[11px] font-[700] uppercase tracking-wide mb-3" style={{color:"#9b9589"}}>Items</div>
-              <div className="space-y-2">
-                {viewing.items.map((item, i) => (
-                  <div key={i} className="flex items-center gap-3 p-3 rounded-[10px]" style={{background:"#fafaf8",border:"1px solid #ebe2d2"}}>
-                    <div className="w-6 h-6 rounded-full flex-shrink-0 border-2 border-white shadow" style={{background: item.colour_hex}} />
-                    <div className="flex-1 text-[12px]">
-                      <span className="font-[600]">{item.product_slug}</span>
-                      <span className="ml-1" style={{color:"#6f6a62"}}>· {item.colour_name} · {item.size} · {item.finish} × {item.quantity}</span>
-                    </div>
-                    <span className="font-[700] text-[13px]" style={{color:"#B84A32"}}>{kes(item.unit_kes * item.quantity)}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="flex justify-between items-center mt-3 pt-3" style={{borderTop:"1px solid #ebe2d2"}}>
-                <span className="font-[700]">Total</span>
-                <span className="font-[700] text-[16px]" style={{color:"#B84A32"}}>{kes(viewing.total_kes)}</span>
-              </div>
-            </div>
-
-            <div>
-              <div className="text-[11px] font-[700] uppercase tracking-wide mb-2" style={{color:"#9b9589"}}>Update Status</div>
-              <div className="flex flex-wrap gap-2">
-                {STATUSES.map(s => (
-                  <button key={s} disabled={saving || viewing.status===s}
-                    onClick={() => updateStatus(viewing.id, s)}
-                    className="px-3 py-1.5 rounded-full text-[12px] font-[600] border transition disabled:opacity-50"
-                    style={{
-                      background: viewing.status===s ? statusBg(s) : "white",
-                      color: viewing.status===s ? statusFg(s) : "#6f6a62",
-                      borderColor: viewing.status===s ? statusFg(s)+"40" : "#d8ccb8",
-                    }}>{s}</button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </Modal>
+      {detail && (
+        <OrderDetailModal
+          order={detail}
+          onClose={() => setDetail(null)}
+          onStatusChange={updateStatus}
+        />
       )}
     </div>
   );
 }
 
-function statusBg(s: string) {
-  const m: Record<string,string> = { pending:"#fefce8",paid:"#f0fdf4",processing:"#eff6ff",shipped:"#faf5ff",delivered:"#ecfdf5",cancelled:"#fff1f2" };
-  return m[s] ?? "#f5f5f5";
-}
-function statusFg(s: string) {
-  const m: Record<string,string> = { pending:"#a16207",paid:"#16a34a",processing:"#2563eb",shipped:"#7c3aed",delivered:"#059669",cancelled:"#dc2626" };
-  return m[s] ?? "#6b7280";
+function OrderDetailModal({ order, onClose, onStatusChange }: {
+  order: AdminOrder; onClose: () => void; onStatusChange: (id:string, s:string) => void;
+}) {
+  const waMsg = `Hi ${order.name}, your MicMikes Paints order #${order.id.slice(0,8).toUpperCase()} (${kes(order.total_kes)}) has been dispatched. Expected delivery: 1-3 business days. Thank you! 🎨`;
+  const waMsgPayment = `Hi ${order.name}, please complete payment for your MicMikes Paints order of ${kes(order.total_kes)} via M-Pesa to 0700000000. Use Ref: ${order.id.slice(0,8).toUpperCase()}. Thank you!`;
+
+  return (
+    <Modal title={`Order — ${order.name}`} onClose={onClose} wide>
+      <div className="space-y-5">
+        {/* customer info */}
+        <div className="rounded-[12px] p-4 space-y-1" style={{ background:"#f8f4ef" }}>
+          <p className="text-[13px] font-[700]">{order.name}</p>
+          <p className="text-[12px]" style={{ color:"#6f6a62" }}>{order.phone} · {order.email || "—"}</p>
+          <p className="text-[12px]" style={{ color:"#6f6a62" }}>{order.county}, {order.town}</p>
+          {order.mpesa_ref && <p className="text-[12px] font-mono" style={{ color:"#6f6a62" }}>M-Pesa Ref: {order.mpesa_ref}</p>}
+          <p className="text-[11px] mt-1" style={{ color:"#9b9589" }}>Placed: {new Date(order.created_at).toLocaleString("en-KE")}</p>
+        </div>
+
+        {/* WhatsApp quick links */}
+        <div>
+          <p className="text-[11px] font-[700] uppercase tracking-wide mb-2" style={{ color:"#6f6a62" }}>WhatsApp</p>
+          <div className="flex flex-wrap gap-2">
+            <a href={waLink(order.phone, waMsgPayment)} target="_blank" rel="noopener noreferrer">
+              <Btn variant="outline" size="sm">💬 Request Payment</Btn>
+            </a>
+            <a href={waLink(order.phone, waMsg)} target="_blank" rel="noopener noreferrer">
+              <Btn variant="outline" size="sm">🚚 Dispatch Notice</Btn>
+            </a>
+            <a href={waLink(order.phone, `Hi ${order.name}, your MicMikes Paints order has been delivered! We hope you love the colours. 😊`)} target="_blank" rel="noopener noreferrer">
+              <Btn variant="outline" size="sm">✅ Delivered</Btn>
+            </a>
+          </div>
+        </div>
+
+        {/* items */}
+        <div>
+          <p className="text-[11px] font-[700] uppercase tracking-wide mb-2" style={{ color:"#6f6a62" }}>Items</p>
+          <div className="space-y-2">
+            {order.items.map((item, i) => (
+              <div key={i} className="flex items-center gap-3 py-2 border-b last:border-0" style={{ borderColor:"#f0ebe2" }}>
+                <div className="w-5 h-5 rounded-full shrink-0" style={{ background: item.colour_hex, border:"1px solid rgba(0,0,0,0.1)" }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-[600] truncate">{item.product_slug}</p>
+                  <p className="text-[11px]" style={{ color:"#9b9589" }}>{item.colour_name} · {item.size} · {item.finish}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-[13px] font-[700]">{kes(item.unit_kes * item.quantity)}</p>
+                  <p className="text-[11px]" style={{ color:"#9b9589" }}>×{item.quantity} @ {kes(item.unit_kes)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-between pt-3 mt-1 border-t" style={{ borderColor:"#ebe2d2" }}>
+            <span className="text-[13px] font-[700]">Total</span>
+            <span className="text-[15px] font-[700]" style={{ color:"#B84A32" }}>{kes(order.total_kes)}</span>
+          </div>
+        </div>
+
+        {/* status */}
+        <div>
+          <p className="text-[11px] font-[700] uppercase tracking-wide mb-2" style={{ color:"#6f6a62" }}>Update status</p>
+          <div className="flex flex-wrap gap-2">
+            {STATUSES.map(s => (
+              <button key={s} onClick={() => onStatusChange(order.id, s)}
+                className="text-[12px] font-[600] px-3 py-1.5 rounded-full border transition"
+                style={{
+                  background: order.status===s ? "#B84A32" : "white",
+                  color: order.status===s ? "white" : "#6f6a62",
+                  borderColor: order.status===s ? "#B84A32" : "#d8ccb8",
+                }}>
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
 }
 
 /* ════════════════════════════════════════════════
    DELIVERY TAB
 ════════════════════════════════════════════════ */
-type DeliveryDraft = { county: string; town: string; rate_kes: number };
-const blankRate = (): DeliveryDraft => ({ county: "", town: "", rate_kes: 0 });
-
-function DeliveryTab({ showToast }: { showToast: (m:string)=>void }) {
-  const [rates,       setRates]       = useState<DeliveryRate[]>([]);
-  const [orders,      setOrders]      = useState<AdminOrder[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [editing,     setEditing]     = useState<DeliveryRate|null>(null);
-  const [adding,      setAdding]      = useState(false);
-  const [draft,       setDraft]       = useState<DeliveryDraft>(blankRate());
-  const [saving,      setSaving]      = useState(false);
-  const [confirm,     setConfirm]     = useState<string|null>(null);
-  const [viewingOrder, setViewingOrder] = useState<AdminOrder|null>(null);
+function DeliveryTab({ showToast }: { showToast: (m:string) => void }) {
+  const [rates, setRates]     = useState<DeliveryRate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal]     = useState<"new"|DeliveryRate|null>(null);
+  const [search, setSearch]   = useState("");
 
   const load = useCallback(async () => {
-    try {
-      const [r, o] = await Promise.all([
-        api("/api/admin/delivery-rates"),
-        api("/api/admin/orders"),
-      ]);
-      setRates(r);
-      setOrders(o);
-    } catch (e) { showToast(`Error: ${e}`); }
+    setLoading(true);
+    try { setRates(await api("/api/admin/delivery-rates")); }
+    catch (e) { showToast(`${e}`); }
     finally { setLoading(false); }
   }, [showToast]);
 
   useEffect(() => { load(); }, [load]);
 
-  const openEdit = (r: DeliveryRate) => {
-    setEditing(r);
-    setDraft({ county: r.county, town: r.town ?? "", rate_kes: r.rate_kes });
-  };
-  const openAdd  = () => { setAdding(true); setDraft(blankRate()); };
-  const closeModal = () => { setEditing(null); setAdding(false); };
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      const body = { ...draft, town: draft.town.trim() || null };
-      if (adding) {
-        const row = await api("/api/admin/delivery-rates", { method:"POST", body: JSON.stringify(body) });
-        setRates(prev => [...prev, row]);
-        showToast(`✓ Added ${row.county}${row.town ? ` / ${row.town}` : ""}`);
-      } else if (editing) {
-        const row = await api("/api/admin/delivery-rates", { method:"PUT", body: JSON.stringify({ id: editing.id, ...body }) });
-        setRates(prev => prev.map(r => r.id===row.id ? row : r));
-        showToast(`✓ Updated ${row.county}`);
-      }
-      closeModal();
-    } catch (e) { showToast(`Error: ${e}`); }
-    finally { setSaving(false); }
-  };
-
-  const del = async (id: string) => {
-    try {
-      await api("/api/admin/delivery-rates", { method:"DELETE", body: JSON.stringify({ id }) });
-      setRates(prev => prev.filter(r => r.id!==id));
-      showToast("✓ Rate deleted");
-    } catch (e) { showToast(`Error: ${e}`); }
-    setConfirm(null);
-  };
-
-  const updateOrderStatus = async (id: string, status: string) => {
-    setSaving(true);
-    try {
-      await api("/api/admin/orders", { method:"PUT", body: JSON.stringify({ id, status }) });
-      setOrders(prev => prev.map(o => o.id===id ? {...o, status} : o));
-      if (viewingOrder?.id===id) setViewingOrder(prev => prev ? {...prev, status} : null);
-      showToast(`✓ Status updated to ${status}`);
-    } catch (e) { showToast(`Error: ${e}`); }
-    finally { setSaving(false); }
-  };
-
-  const byCounty = rates.reduce<Record<string, DeliveryRate[]>>((acc, r) => {
-    (acc[r.county] ??= []).push(r); return acc;
-  }, {});
-
-  const inTransit = orders.filter(o => o.status === "shipped" || o.status === "delivered");
+  const filtered = rates.filter(r => {
+    const q = search.toLowerCase();
+    return !q || r.county.toLowerCase().includes(q) || (r.town ?? "").toLowerCase().includes(q);
+  });
 
   if (loading) return <Spinner />;
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:22, fontWeight:600 }}>Delivery Rates <span className="text-[#9b9589] text-[16px] font-normal">({rates.length})</span></h2>
+        <Btn onClick={() => setModal("new")}>+ Add rate</Btn>
+      </div>
 
-      {/* ── In Transit / Delivered Orders ── */}
-      <div>
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <div>
-            <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>Delivery Tracking</h2>
-            <p className="text-[13px] mt-0.5" style={{ color:"#6f6a62" }}>
-              {inTransit.filter(o=>o.status==="shipped").length} in transit &nbsp;·&nbsp;
-              {inTransit.filter(o=>o.status==="delivered").length} delivered
-            </p>
-          </div>
-          <Btn variant="outline" onClick={load}>↻ Refresh</Btn>
+      <SearchBar value={search} onChange={setSearch} placeholder="Search county or town…" />
+
+      <div className="bg-white rounded-[16px] overflow-hidden" style={{ border:"1px solid #ebe2d2" }}>
+        <table className="w-full text-[13px]">
+          <thead>
+            <tr className="border-b" style={{ borderColor:"#ebe2d2", background:"#f8f4ef" }}>
+              <th className="text-left px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>County</th>
+              <th className="text-left px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>Town</th>
+              <th className="text-right px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>Rate</th>
+              <th className="px-5 py-3" />
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(r => (
+              <tr key={r.id} className="border-b hover:bg-[#f8f4ef] transition" style={{ borderColor:"#f0ebe2" }}>
+                <td className="px-5 py-3 font-[600]">{r.county}</td>
+                <td className="px-5 py-3" style={{ color:"#6f6a62" }}>{r.town ?? <span style={{ color:"#c0b8ac" }}>All towns</span>}</td>
+                <td className="px-5 py-3 text-right font-[700]">{kes(r.rate_kes)}</td>
+                <td className="px-5 py-3 text-right">
+                  <Btn size="sm" variant="ghost" onClick={() => setModal(r)}>Edit</Btn>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {filtered.length === 0 && (
+          <p className="text-[13px] py-8 text-center" style={{ color:"#9b9589" }}>No rates found.</p>
+        )}
+      </div>
+
+      {modal && (
+        <DeliveryModal
+          rate={modal === "new" ? null : modal}
+          onClose={() => setModal(null)}
+          onSaved={() => { setModal(null); load(); showToast(modal === "new" ? "Rate added" : "Rate updated"); }}
+          onDeleted={() => { setModal(null); load(); showToast("Rate deleted"); }}
+          showToast={showToast}
+        />
+      )}
+    </div>
+  );
+}
+
+function DeliveryModal({ rate, onClose, onSaved, onDeleted, showToast }: {
+  rate: DeliveryRate | null; onClose: () => void; onSaved: () => void; onDeleted: () => void; showToast: (m:string) => void;
+}) {
+  const [form, setForm] = useState({ county: rate?.county ?? "", town: rate?.town ?? "", rate_kes: rate?.rate_kes ?? 0 });
+  const [saving, setSaving] = useState(false);
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm(f => ({ ...f, [k]: k==="rate_kes" ? Number(e.target.value) : e.target.value }));
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault(); setSaving(true);
+    try {
+      const body = { county: form.county, town: form.town || null, rate_kes: form.rate_kes };
+      if (rate) await api(`/api/admin/delivery-rates/${rate.id}`, { method:"PATCH", body: JSON.stringify(body) });
+      else      await api("/api/admin/delivery-rates", { method:"POST", body: JSON.stringify(body) });
+      onSaved();
+    } catch (err) { showToast(`${err}`); }
+    finally { setSaving(false); }
+  };
+
+  const del = async () => {
+    if (!rate || !confirm(`Delete rate for ${rate.county}?`)) return;
+    try { await api(`/api/admin/delivery-rates/${rate.id}`, { method:"DELETE" }); onDeleted(); }
+    catch (err) { showToast(`${err}`); }
+  };
+
+  return (
+    <Modal title={rate ? "Edit Delivery Rate" : "New Delivery Rate"} onClose={onClose}>
+      <form onSubmit={save} className="space-y-4">
+        <Field label="County"><input className={inp} value={form.county} onChange={set("county")} required /></Field>
+        <Field label="Town" hint="Leave blank to apply to all towns in this county"><input className={inp} value={form.town} onChange={set("town")} /></Field>
+        <Field label="Rate (KES)"><input className={inp} type="number" value={form.rate_kes} onChange={set("rate_kes")} min={0} required /></Field>
+        <div className="flex gap-2 pt-2">
+          <Btn type="submit" disabled={saving}>{saving ? "Saving…" : rate ? "Save changes" : "Add rate"}</Btn>
+          {rate && <Btn variant="danger" onClick={del}>Delete</Btn>}
         </div>
+      </form>
+    </Modal>
+  );
+}
 
-        {inTransit.length === 0 ? (
-          <div className="bg-white rounded-[16px] p-8 text-center" style={{ border:"1px solid #ebe2d2" }}>
-            <p className="text-[32px] mb-2">🚚</p>
-            <p className="font-[600] text-[14px]">No orders in transit or delivered yet</p>
-            <p className="text-[13px] mt-1" style={{color:"#9b9589"}}>Orders marked as <strong>shipped</strong> or <strong>delivered</strong> will appear here.</p>
-          </div>
-        ) : (
+/* ════════════════════════════════════════════════
+   STOCK TAB  (NEW)
+════════════════════════════════════════════════ */
+function StockTab({ showToast }: { showToast: (m:string) => void }) {
+  const [stock, setStock]     = useState<StockEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch]   = useState("");
+  const [editing, setEditing] = useState<StockEntry | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Falls back gracefully if endpoint doesn't exist yet
+      const data = await api("/api/admin/stock").catch(() => []);
+      setStock(data ?? []);
+    } catch { setStock([]); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const filtered = stock.filter(s => {
+    const q = search.toLowerCase();
+    return !q || s.product_name.toLowerCase().includes(q) || s.size.toLowerCase().includes(q) || (s.colour_name ?? "").toLowerCase().includes(q);
+  });
+
+  const lowStock = filtered.filter(s => s.stock <= s.low_stock_threshold);
+  const normal   = filtered.filter(s => s.stock > s.low_stock_threshold);
+
+  const saveStock = async (entry: StockEntry, newQty: number, newThreshold: number) => {
+    try {
+      await api(`/api/admin/stock/${entry.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ stock: newQty, low_stock_threshold: newThreshold }),
+      });
+      setStock(prev => prev.map(s => s.id === entry.id ? { ...s, stock: newQty, low_stock_threshold: newThreshold } : s));
+      setEditing(null);
+      showToast("Stock updated");
+    } catch (e) { showToast(`${e}`); }
+  };
+
+  if (loading) return <Spinner />;
+
+  if (stock.length === 0) {
+    return (
+      <div className="space-y-6">
+        <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:22, fontWeight:600 }}>Stock / Inventory</h2>
+        <div className="bg-white rounded-[16px] p-10 text-center" style={{ border:"1px solid #ebe2d2" }}>
+          <p className="text-[32px] mb-3">📋</p>
+          <p className="text-[14px] font-[600]">No stock data yet</p>
+          <p className="text-[13px] mt-2 max-w-sm mx-auto" style={{ color:"#9b9589" }}>
+            Once the <code className="bg-[#f0ebe2] px-1 rounded">/api/admin/stock</code> endpoint is set up, inventory levels per product variant will appear here.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:22, fontWeight:600 }}>Stock / Inventory</h2>
+          {lowStock.length > 0 && (
+            <p className="text-[12px] mt-0.5 font-[600]" style={{ color:"#dc2626" }}>⚠️ {lowStock.length} variant{lowStock.length>1?"s":""} below threshold</p>
+          )}
+        </div>
+        <Btn variant="outline" size="sm" onClick={load}>↻ Refresh</Btn>
+      </div>
+
+      <SearchBar value={search} onChange={setSearch} placeholder="Search product, size, colour…" />
+
+      {/* low stock alert */}
+      {lowStock.length > 0 && (
+        <div className="rounded-[16px] p-5" style={{ background:"#fff5f5", border:"1px solid #fecaca" }}>
+          <p className="text-[12px] font-[700] mb-3" style={{ color:"#dc2626" }}>LOW STOCK — Restock Needed</p>
           <div className="space-y-2">
-            {inTransit.map(o => (
-              <div key={o.id}
-                className="bg-white rounded-[14px] p-4 flex flex-wrap items-center gap-3 cursor-pointer hover:border-[#B84A32] transition"
-                style={{ border:"1px solid #ebe2d2" }}
-                onClick={() => setViewingOrder(o)}>
-                <StatusBadge s={o.status} />
-                <div className="flex-1 min-w-[160px]">
-                  <span className="font-[600] text-[13px]">{o.name}</span>
-                  <span className="text-[12px] ml-2" style={{color:"#6f6a62"}}>{o.county}{o.town ? `, ${o.town}` : ""}</span>
+            {lowStock.map(s => (
+              <div key={s.id} className="flex items-center justify-between gap-3 bg-white rounded-[10px] px-4 py-3" style={{ border:"1px solid #fecaca" }}>
+                <div>
+                  <p className="text-[13px] font-[600]">{s.product_name} · {s.size}</p>
+                  {s.colour_name && <p className="text-[11px]" style={{ color:"#9b9589" }}>{s.colour_name}</p>}
                 </div>
-                <div className="flex items-center gap-3 text-[12px]">
-                  {o.mpesa_ref
-                    ? <span className="font-mono px-2 py-0.5 rounded-[6px]" style={{background:"#f0fdf4",color:"#16a34a",border:"1px solid #bbf7d0"}}>{o.mpesa_ref}</span>
-                    : <span className="text-[11px]" style={{color:"#9b9589"}}>no M-Pesa ref</span>
-                  }
-                  <span className="font-[700]" style={{color:"#B84A32"}}>{kes(o.total_kes)}</span>
-                  <span style={{color:"#9b9589"}}>{new Date(o.created_at).toLocaleDateString("en-KE",{day:"numeric",month:"short",year:"2-digit"})}</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-[13px] font-[700]" style={{ color:"#dc2626" }}>{s.stock} left</span>
+                  <Btn size="sm" variant="danger" onClick={() => setEditing(s)}>Restock</Btn>
                 </div>
               </div>
             ))}
           </div>
-        )}
+        </div>
+      )}
+
+      {/* full stock table */}
+      <div className="bg-white rounded-[16px] overflow-hidden" style={{ border:"1px solid #ebe2d2" }}>
+        <table className="w-full text-[13px]">
+          <thead>
+            <tr className="border-b" style={{ borderColor:"#ebe2d2", background:"#f8f4ef" }}>
+              <th className="text-left px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>Product</th>
+              <th className="text-left px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>Size</th>
+              <th className="text-left px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>Colour</th>
+              <th className="text-right px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>In Stock</th>
+              <th className="text-right px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>Threshold</th>
+              <th className="px-5 py-3" />
+            </tr>
+          </thead>
+          <tbody>
+            {normal.map(s => (
+              <tr key={s.id} className="border-b hover:bg-[#f8f4ef] transition" style={{ borderColor:"#f0ebe2" }}>
+                <td className="px-5 py-3 font-[600]">{s.product_name}</td>
+                <td className="px-5 py-3" style={{ color:"#6f6a62" }}>{s.size}</td>
+                <td className="px-5 py-3">
+                  {s.colour_name
+                    ? <span style={{ color:"#6f6a62" }}>{s.colour_name}</span>
+                    : <span style={{ color:"#c0b8ac" }}>—</span>}
+                </td>
+                <td className="px-5 py-3 text-right font-[700]">{s.stock}</td>
+                <td className="px-5 py-3 text-right" style={{ color:"#9b9589" }}>{s.low_stock_threshold}</td>
+                <td className="px-5 py-3 text-right">
+                  <Btn size="sm" variant="ghost" onClick={() => setEditing(s)}>Edit</Btn>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      {/* ── Delivery Rates ── */}
-      <div>
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-          <div>
-            <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:22, fontWeight:600 }}>Delivery Rates</h2>
-            <p className="text-[13px] mt-0.5" style={{ color:"#6f6a62" }}>{rates.length} rates · county-level defaults + town overrides</p>
-          </div>
-          <Btn onClick={openAdd}>+ Add rate</Btn>
+      {editing && (
+        <StockEditModal
+          entry={editing}
+          onClose={() => setEditing(null)}
+          onSave={saveStock}
+        />
+      )}
+    </div>
+  );
+}
+
+function StockEditModal({ entry, onClose, onSave }: {
+  entry: StockEntry; onClose: () => void; onSave: (e: StockEntry, qty: number, threshold: number) => void;
+}) {
+  const [qty, setQty] = useState(entry.stock);
+  const [threshold, setThreshold] = useState(entry.low_stock_threshold);
+
+  return (
+    <Modal title={`Update Stock — ${entry.product_name}`} onClose={onClose}>
+      <div className="space-y-4">
+        <div className="rounded-[10px] p-3" style={{ background:"#f8f4ef" }}>
+          <p className="text-[12px]" style={{ color:"#6f6a62" }}>{entry.size}{entry.colour_name ? ` · ${entry.colour_name}` : ""}</p>
         </div>
-
-        {Object.keys(byCounty).length === 0 && (
-          <div className="text-center py-16">
-            <p className="text-[15px] font-[600] mb-2">No delivery rates yet</p>
-            <p className="text-[13px] mb-4" style={{color:"#9b9589"}}>Add a county rate to get started. Town-level rates override the county default.</p>
-            <Btn onClick={openAdd}>+ Add first rate</Btn>
-          </div>
-        )}
-
-        <div className="space-y-6">
-          {Object.entries(byCounty).map(([county, countyRates]) => (
-            <div key={county} className="bg-white rounded-[16px] overflow-hidden" style={{ border:"1px solid #ebe2d2" }}>
-              <div className="px-5 py-3 flex items-center justify-between" style={{background:"#f8f4ef", borderBottom:"1px solid #ebe2d2"}}>
-                <h3 className="font-[700] text-[14px]">{county}</h3>
-                <span className="text-[11px]" style={{color:"#9b9589"}}>{countyRates.length} rate{countyRates.length>1?"s":""}</span>
-              </div>
-              <table className="w-full text-[13px]">
-                <tbody>
-                  {countyRates.map(r => (
-                    <tr key={r.id} style={{borderBottom:"1px solid #f5f0e8"}}>
-                      <td className="px-5 py-3">
-                        {r.town
-                          ? <span>{r.town}</span>
-                          : <span className="text-[11px] px-2 py-0.5 rounded-full font-[600]" style={{background:"#f5ede3",color:"#B84A32"}}>County default</span>
-                        }
-                      </td>
-                      <td className="px-5 py-3 font-[700]" style={{color: r.rate_kes===0 ? "#16a34a" : "#2B2B2E"}}>
-                        {r.rate_kes === 0 ? "Free" : kes(r.rate_kes)}
-                      </td>
-                      <td className="px-5 py-3 text-right">
-                        <div className="flex gap-1 justify-end">
-                          <Btn size="sm" variant="outline" onClick={()=>openEdit(r)}>Edit</Btn>
-                          <Btn size="sm" variant="danger" onClick={()=>setConfirm(r.id)}>✕</Btn>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ))}
+        <Field label="Units in stock">
+          <input className={inp} type="number" min={0} value={qty} onChange={e => setQty(Number(e.target.value))} />
+        </Field>
+        <Field label="Low stock alert threshold" hint="You'll see an alert when stock falls to or below this number">
+          <input className={inp} type="number" min={0} value={threshold} onChange={e => setThreshold(Number(e.target.value))} />
+        </Field>
+        <div className="flex gap-2 pt-2">
+          <Btn onClick={() => onSave(entry, qty, threshold)}>Save stock</Btn>
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
         </div>
       </div>
+    </Modal>
+  );
+}
 
-      {/* ── Order detail modal (from delivery tracking) ── */}
-      {viewingOrder && (
-        <Modal title={`Order — ${viewingOrder.name}`} onClose={()=>setViewingOrder(null)} wide>
+/* ════════════════════════════════════════════════
+   CUSTOMERS TAB  (NEW)
+════════════════════════════════════════════════ */
+function CustomersTab({ showToast }: { showToast: (m:string) => void }) {
+  const [customers, setCustomers] = useState<CustomerRow[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [search, setSearch]       = useState("");
+  const [detail, setDetail]       = useState<CustomerRow | null>(null);
+  const [orders, setOrders]       = useState<AdminOrder[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api("/api/admin/customers").catch(() => []);
+      setCustomers(data ?? []);
+    } catch { setCustomers([]); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const openCustomer = async (c: CustomerRow) => {
+    setDetail(c);
+    setOrdersLoading(true);
+    try {
+      const data = await api(`/api/admin/customers/${c.id}/orders`).catch(() => []);
+      setOrders(data ?? []);
+    } catch { setOrders([]); }
+    finally { setOrdersLoading(false); }
+  };
+
+  const filtered = customers.filter(c => {
+    const q = search.toLowerCase();
+    return !q || c.name.toLowerCase().includes(q) || c.phone.includes(q) || c.email.toLowerCase().includes(q) || c.county.toLowerCase().includes(q);
+  });
+
+  const exportCustomersCSV = () => {
+    downloadCSV("micmikes-customers.csv", filtered.map(c => ({
+      Name: c.name,
+      Phone: c.phone,
+      Email: c.email,
+      County: c.county,
+      Town: c.town,
+      Orders: c.order_count,
+      Total_Spent_KES: c.total_spent_kes,
+      Last_Order: c.last_order_at ? new Date(c.last_order_at).toLocaleDateString("en-KE") : "",
+    })));
+  };
+
+  if (loading) return <Spinner />;
+
+  if (customers.length === 0) {
+    return (
+      <div className="space-y-6">
+        <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:22, fontWeight:600 }}>Customers</h2>
+        <div className="bg-white rounded-[16px] p-10 text-center" style={{ border:"1px solid #ebe2d2" }}>
+          <p className="text-[32px] mb-3">👤</p>
+          <p className="text-[14px] font-[600]">No customer data yet</p>
+          <p className="text-[13px] mt-2 max-w-sm mx-auto" style={{ color:"#9b9589" }}>
+            Once the <code className="bg-[#f0ebe2] px-1 rounded">/api/admin/customers</code> endpoint is set up, your customer directory will appear here.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:22, fontWeight:600 }}>Customers <span className="text-[#9b9589] text-[16px] font-normal">({customers.length})</span></h2>
+        <Btn variant="outline" size="sm" onClick={exportCustomersCSV}>⬇ Export CSV</Btn>
+      </div>
+
+      <SearchBar value={search} onChange={setSearch} placeholder="Search name, phone, email, county…" />
+
+      <div className="bg-white rounded-[16px] overflow-hidden" style={{ border:"1px solid #ebe2d2" }}>
+        <table className="w-full text-[13px]">
+          <thead>
+            <tr className="border-b" style={{ borderColor:"#ebe2d2", background:"#f8f4ef" }}>
+              <th className="text-left px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>Customer</th>
+              <th className="text-left px-5 py-3 font-[700] text-[11px] uppercase tracking-wide hidden sm:table-cell" style={{ color:"#9b9589" }}>County</th>
+              <th className="text-right px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>Orders</th>
+              <th className="text-right px-5 py-3 font-[700] text-[11px] uppercase tracking-wide" style={{ color:"#9b9589" }}>Spent</th>
+              <th className="text-right px-5 py-3 font-[700] text-[11px] uppercase tracking-wide hidden md:table-cell" style={{ color:"#9b9589" }}>Last Order</th>
+              <th className="px-5 py-3" />
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(c => (
+              <tr key={c.id} className="border-b hover:bg-[#f8f4ef] transition cursor-pointer" style={{ borderColor:"#f0ebe2" }} onClick={() => openCustomer(c)}>
+                <td className="px-5 py-3">
+                  <p className="font-[600]">{c.name}</p>
+                  <p className="text-[11px] mt-0.5" style={{ color:"#9b9589" }}>{c.phone}</p>
+                </td>
+                <td className="px-5 py-3 hidden sm:table-cell" style={{ color:"#6f6a62" }}>{c.county}</td>
+                <td className="px-5 py-3 text-right font-[700]">{c.order_count}</td>
+                <td className="px-5 py-3 text-right font-[700]" style={{ color:"#B84A32" }}>{kes(c.total_spent_kes)}</td>
+                <td className="px-5 py-3 text-right hidden md:table-cell" style={{ color:"#9b9589" }}>
+                  {c.last_order_at ? new Date(c.last_order_at).toLocaleDateString("en-KE", { day:"numeric", month:"short", year:"numeric" }) : "—"}
+                </td>
+                <td className="px-5 py-3 text-right">
+                  <Btn size="sm" variant="ghost">View</Btn>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {detail && (
+        <Modal title={`${detail.name}`} onClose={() => { setDetail(null); setOrders([]); }} wide>
           <div className="space-y-5">
-            <div className="grid grid-cols-2 gap-3 text-[13px]">
-              {([
-                ["Name", viewingOrder.name],
-                ["Email", viewingOrder.email],
-                ["Phone", viewingOrder.phone],
-                ["Location", [viewingOrder.town, viewingOrder.county, "Kenya"].filter(Boolean).join(", ")],
-                ["M-Pesa Ref", viewingOrder.mpesa_ref || "—"],
-                ["Date", new Date(viewingOrder.created_at).toLocaleString("en-KE")],
-              ] as [string,string][]).map(([label, val]) => (
-                <div key={label} className="p-3 rounded-[10px]" style={{background:"#f8f4ef"}}>
-                  <div className="text-[10px] font-[700] uppercase tracking-wide mb-1" style={{color:"#9b9589"}}>{label}</div>
-                  <div className="font-[500]" style={{color: label==="M-Pesa Ref" && viewingOrder.mpesa_ref ? "#16a34a" : "#2B2B2E"}}>{val}</div>
+            {/* customer summary */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label:"Total Spent", value: kes(detail.total_spent_kes), color:"#B84A32" },
+                { label:"Orders", value: String(detail.order_count), color:"#2B2B2E" },
+                { label:"County", value: detail.county, color:"#2B2B2E" },
+                { label:"Town", value: detail.town, color:"#2B2B2E" },
+              ].map(k => (
+                <div key={k.label} className="rounded-[10px] p-3 text-center" style={{ background:"#f8f4ef" }}>
+                  <p className="text-[11px] font-[700] uppercase tracking-wide mb-1" style={{ color:"#9b9589" }}>{k.label}</p>
+                  <p className="text-[14px] font-[700]" style={{ color: k.color }}>{k.value}</p>
                 </div>
               ))}
             </div>
+
+            {/* contact */}
+            <div className="flex flex-wrap gap-2">
+              <a href={`tel:${detail.phone}`}>
+                <Btn variant="outline" size="sm">📞 Call</Btn>
+              </a>
+              <a href={waLink(detail.phone, `Hi ${detail.name}, thank you for being a MicMikes Paints customer! 🎨`)} target="_blank" rel="noopener noreferrer">
+                <Btn variant="outline" size="sm">💬 WhatsApp</Btn>
+              </a>
+              {detail.email && (
+                <a href={`mailto:${detail.email}`}>
+                  <Btn variant="outline" size="sm">✉️ Email</Btn>
+                </a>
+              )}
+            </div>
+
+            {/* order history */}
             <div>
-              <div className="text-[11px] font-[700] uppercase tracking-wide mb-3" style={{color:"#9b9589"}}>Items</div>
-              <div className="space-y-2">
-                {viewingOrder.items.map((item, i) => (
-                  <div key={i} className="flex items-center gap-3 p-3 rounded-[10px]" style={{background:"#fafaf8",border:"1px solid #ebe2d2"}}>
-                    <div className="w-6 h-6 rounded-full flex-shrink-0 border-2 border-white shadow" style={{background: item.colour_hex}} />
-                    <div className="flex-1 text-[12px]">
-                      <span className="font-[600]">{item.product_slug}</span>
-                      <span className="ml-1" style={{color:"#6f6a62"}}>· {item.colour_name} · {item.size} · {item.finish} × {item.quantity}</span>
+              <p className="text-[11px] font-[700] uppercase tracking-wide mb-3" style={{ color:"#6f6a62" }}>Order History</p>
+              {ordersLoading ? <Spinner /> : orders.length === 0 ? (
+                <p className="text-[13px]" style={{ color:"#9b9589" }}>No orders found for this customer.</p>
+              ) : (
+                <div className="space-y-2">
+                  {orders.map(o => (
+                    <div key={o.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 rounded-[10px]" style={{ background:"#f8f4ef" }}>
+                      <div>
+                        <p className="text-[12px] font-mono" style={{ color:"#9b9589" }}>{o.id.slice(0,8).toUpperCase()}</p>
+                        <p className="text-[11px]" style={{ color:"#9b9589" }}>{new Date(o.created_at).toLocaleDateString("en-KE", { day:"numeric", month:"short", year:"numeric" })}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <StatusBadge s={o.status} />
+                        <span className="text-[13px] font-[700]">{kes(o.total_kes)}</span>
+                      </div>
                     </div>
-                    <span className="font-[700] text-[13px]" style={{color:"#B84A32"}}>{kes(item.unit_kes * item.quantity)}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="flex justify-between items-center mt-3 pt-3" style={{borderTop:"1px solid #ebe2d2"}}>
-                <span className="font-[700]">Total</span>
-                <span className="font-[700] text-[16px]" style={{color:"#B84A32"}}>{kes(viewingOrder.total_kes)}</span>
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <div>
-              <div className="text-[11px] font-[700] uppercase tracking-wide mb-2" style={{color:"#9b9589"}}>Update Status</div>
-              <div className="flex flex-wrap gap-2">
-                {(["shipped","delivered","cancelled"] as string[]).map(s => (
-                  <button key={s} disabled={saving || viewingOrder.status===s}
-                    onClick={() => updateOrderStatus(viewingOrder.id, s)}
-                    className="px-3 py-1.5 rounded-full text-[12px] font-[600] border transition disabled:opacity-50"
-                    style={{
-                      background: viewingOrder.status===s ? statusBg(s) : "white",
-                      color: viewingOrder.status===s ? statusFg(s) : "#6f6a62",
-                      borderColor: viewingOrder.status===s ? statusFg(s)+"40" : "#d8ccb8",
-                    }}>{s}</button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {/* ── Rate add/edit modal ── */}
-      {(editing||adding) && (
-        <Modal title={adding ? "Add delivery rate" : `Edit — ${editing!.county}${editing!.town ? ` / ${editing!.town}` : ""}`} onClose={closeModal}>
-          <div className="space-y-4">
-            <Field label="County" hint="e.g. Nairobi, Kiambu, Mombasa">
-              <input className={inp} value={draft.county} onChange={e=>setDraft(d=>({...d,county:e.target.value}))} placeholder="Nairobi" />
-            </Field>
-            <Field label="Town (optional)" hint="Leave blank to set a county-wide default rate">
-              <input className={inp} value={draft.town} onChange={e=>setDraft(d=>({...d,town:e.target.value}))} placeholder="Westlands" />
-            </Field>
-            <Field label="Rate (KES)" hint="Enter 0 for free delivery">
-              <input type="number" className={inp} value={draft.rate_kes}
-                onChange={e=>setDraft(d=>({...d,rate_kes:parseInt(e.target.value)||0}))}
-                min={0} step={50} />
-            </Field>
-            <div className="flex gap-2 pt-2">
-              <Btn variant="outline" onClick={closeModal}>Cancel</Btn>
-              <Btn onClick={save} disabled={saving||!draft.county}>
-                {saving ? "Saving…" : adding ? "Add rate" : "Save changes"}
-              </Btn>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {confirm && (
-        <Modal title="Delete rate?" onClose={()=>setConfirm(null)}>
-          <p className="text-[13px] mb-5" style={{color:"#6f6a62"}}>This delivery rate will be removed. Orders to this area will use the county default or show no rate.</p>
-          <div className="flex gap-2">
-            <Btn variant="outline" onClick={()=>setConfirm(null)}>Cancel</Btn>
-            <Btn variant="danger" onClick={()=>del(confirm!)}>Delete</Btn>
           </div>
         </Modal>
       )}

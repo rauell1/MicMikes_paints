@@ -320,7 +320,7 @@ function CheckoutDialog({
               ))}
               <div className="mm-card rounded-[14px] p-4 space-y-[6px] text-[13px]">
                 <div className="flex justify-between"><span className="mm-muted">Subtotal</span><span className="font-[600]">{kes(subtotal)}</span></div>
-                <div className="flex justify-between mm-muted"><span>Delivery</span><span>{deliveryFee===0?"Free":kes(deliveryFee)}</span></div>
+                <div className="flex justify-between mm-muted"><span>Delivery</span><span>Free</span></div>
                 <div className="flex justify-between text-[15px] font-[700] pt-2 border-t" style={{ borderColor: "#eadcc4" }}><span>Total</span><span>{kes(total)}</span></div>
               </div>
             </div>
@@ -336,6 +336,7 @@ function CheckoutDialog({
                     <span className="font-[600] flex-shrink-0">{kes(i.unitKes * i.quantity)}</span>
                   </div>
                 ))}
+                <div className="flex justify-between mm-muted text-[13px]"><span>Delivery</span><span>Free</span></div>
                 <div className="flex justify-between font-[700] text-[15px] pt-2 border-t" style={{ borderColor: "#eadcc4" }}><span>Total</span><span>{kes(total)}</span></div>
               </div>
               <div className="mm-card rounded-[14px] p-4 space-y-[5px]">
@@ -403,7 +404,7 @@ export default function App() {
 
   const cartCount = useMemo(() => cart.reduce((s, i) => s + i.quantity, 0), [cart]);
   const subtotal = useMemo(() => cart.reduce((s, i) => s + i.unitKes * i.quantity, 0), [cart]);
-  const deliveryFee = subtotal === 0 ? 0 : (subtotal >= 15000 ? 0 : 350);
+  const deliveryFee = 0;
   const totalKes = subtotal + deliveryFee;
 
   const [cartOpen, setCartOpen] = useState(false);
@@ -538,7 +539,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-8 py-[10px] flex items-center justify-center gap-4 text-center">
           <span className="font-tag text-[15px] sm:text-[16px] italic">Bring Walls to Life — Colour That Lasts. Style That Inspires.</span>
           <span className="hidden sm:inline opacity-90">•</span>
-          <span className="font-mono2 text-[11px] hidden sm:inline">Free delivery in Nairobi over KES 15,000</span>
+          <span className="font-mono2 text-[11px] hidden sm:inline">🎉 Free delivery on all orders</span>
         </div>
       </div>
 
@@ -588,20 +589,20 @@ export default function App() {
                 <div className="inline-flex items-center gap-2 text-[11px] font-mono2 px-3 py-[6px] rounded-full mb-4 bg-white border" style={{ borderColor: "#e7d7be", color: "#B84A32" }}>KEEKOROK EDITION • NAIROBI • KES</div>
                 <h1 className="font-display text-[40px] sm:text-[56px] md:text-[64px] leading-[0.95] tracking-[-0.017em]">Bring Walls<br/>to Life</h1>
                 <p className="font-tag text-[22px] sm:text-[26px] mt-3" style={{ color: "#5d5850" }}>Colour That Lasts. Style That Inspires.</p>
-                <p className="max-w-[520px] text-[15.5px] leading-relaxed mm-muted mt-5">Keekorok paint system — 20 curated Kenyan shades, M-Pesa checkout, next-day Nairobi delivery. Premium emulsion, eggshell, satin &amp; semi-gloss.</p>
+                <p className="max-w-[520px] text-[15.5px] leading-relaxed mm-muted mt-5">Keekorok paint system — 20 curated Kenyan shades, M-Pesa checkout, free delivery on all orders. Premium emulsion, eggshell, satin &amp; semi-gloss.</p>
                 <div className="flex flex-wrap gap-3 mt-7">
                   <button onClick={() => navigate("colours")} className="btn btn-primary px-[22px] py-[13px] text-[14.5px]">Find Your Perfect Shade →</button>
                   <button onClick={() => navigate("visualizer")} className="btn btn-ghost px-[22px] py-[13px] text-[14.5px]">Open Visualizer</button>
                 </div>
                 <div className="flex flex-wrap gap-x-6 gap-y-2 text-[12px] font-mono2 mt-5" style={{ color: "#7c756a" }}>
-                  <span>✔ M-Pesa STK</span><span>✔ KES pricing</span><span>✔ Free delivery ≥ 15k</span><span>✔ 20 Keekorok colours</span>
+                  <span>✔ M-Pesa STK</span><span>✔ KES pricing</span><span>✔ Free delivery</span><span>✔ 20 Keekorok colours</span>
                 </div>
               </div>
               <div className="lg:col-span-6">
                 <div className="mm-card rounded-[28px] overflow-hidden mm-shadow">
                   <div className="relative">
                     <img src="https://images.pexels.com/photos/1571460/pexels-photo-1571460.jpeg?auto=compress&cs=tinysrgb&w=1400" alt="Keekorok living room" className="w-full h-[340px] sm:h-[430px] object-cover" loading="eager" />
-                    <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(43,43,46,0.08) 0%, rgba(43,43,46,0.22) 100%)"}}/> 
+                    <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(43,43,46,0.08) 0%, rgba(43,43,46,0.22) 100%)"}}/>
                     <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between gap-3">
                       <div className="px-[14px] py-[9px] rounded-[14px] bg-white/95 text-[13px] font-[600]">Ocean Breeze • Satin</div>
                       <div className="px-[12px] py-[8px] rounded-full text-[11px] font-mono2 bg-[#2B2B2E] text-[#F8F4EF]">Keekorok</div>
@@ -735,7 +736,7 @@ export default function App() {
           <div className="max-w-7xl mx-auto px-4 sm:px-8">
             <div className="max-w-[760px] mb-6">
               <h2 className="font-display text-[30px] sm:text-[36px]">Shop</h2>
-              <p className="mm-muted mt-2">Premium Keekorok paints, primers &amp; supplies. M-Pesa checkout. Next-day Nairobi delivery.</p>
+              <p className="mm-muted mt-2">Premium Keekorok paints, primers &amp; supplies. M-Pesa checkout. Free delivery on all orders.</p>
             </div>
             <div className="mm-card rounded-[20px] p-5 mb-6">
               <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-3">Choose Your Colour</div>
@@ -881,7 +882,7 @@ export default function App() {
             {cart.length > 0 && (
               <div className="px-6 py-5 border-t space-y-3" style={{ borderColor: "#e7d9c3" }}>
                 <div className="flex justify-between text-[13.5px]"><span className="mm-muted">Subtotal</span><span className="font-[600]">{kes(subtotal)}</span></div>
-                <div className="flex justify-between text-[13px] mm-muted"><span>Delivery</span><span>{deliveryFee === 0 ? "Free" : kes(deliveryFee)}</span></div>
+                <div className="flex justify-between text-[13px] mm-muted"><span>Delivery</span><span>Free</span></div>
                 <div className="flex justify-between text-[15px] font-[700] pt-2 border-t" style={{ borderColor: "#eadcc4" }}>
                   <span>Total</span><span>{kes(totalKes)}</span>
                 </div>

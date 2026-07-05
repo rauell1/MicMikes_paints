@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Analytics } from "@vercel/analytics/react";
+import TrackOrder from "./TrackOrder";
 
 function getSessionId(): string {
   const key = "mm-session";
@@ -486,7 +487,7 @@ export default function App() {
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 1024px)");
     if (!mq.matches) return;
-    const ids = ["home", "colours", "visualizer", "shop"];
+    const ids = ["home", "colours", "visualizer", "shop", "track"];
     const observer = new IntersectionObserver(
       entries => { if (navLockRef.current) return; entries.forEach(e => { if (e.isIntersecting) setActivePage(e.target.id); }); },
       { threshold: 0.35 }
@@ -559,7 +560,7 @@ export default function App() {
             </div>
           </button>
           <nav className="hidden lg:flex items-center gap-8 text-[14.5px] font-[500]">
-            {[["Home","home"],["Colours","colours"],["Visualizer","visualizer"],["Shop","shop"]].map(([label,id]) => (
+            {[["Home","home"],["Colours","colours"],["Visualizer","visualizer"],["Shop","shop"],["Track Order","track"]].map(([label,id]) => (
               <button key={id} onClick={() => navigate(id)} className="hover:opacity-70 transition-opacity relative" style={{ color: activePage === id ? "#B84A32" : undefined }}>
                 {label}
                 {activePage === id && <span className="absolute -bottom-[22px] left-0 right-0 h-[2px] rounded-full" style={{ background: "#B84A32" }} />}
@@ -812,16 +813,22 @@ export default function App() {
           </div>
         </section>
 
+        {/* Track Order section */}
+        <div className={activePage === "track" ? "block pg-enter" : "hidden lg:block"}>
+          <TrackOrder />
+        </div>
+
       </main>
 
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 border-t"
         style={{ backgroundColor: "rgba(248,244,239,0.97)", backdropFilter: "blur(12px)", borderColor: "#e8dcc7", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
         <div className="flex items-stretch h-[64px]">
           {[
-            { id: "home", label: "Home", icon: <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>, icon2: <polyline points="9 22 9 12 15 12 15 22"/> },
-            { id: "colours", label: "Colours", icon: <circle cx="12" cy="12" r="10"/>, icon2: <path d="M8.56 2.75c4.37 6.03 6.02 9.42 8.03 17.72m2.54-15.38c-3.72 4.35-8.94 5.66-16.88 5.85m19.5 1.9c-3.5-.93-6.63-.82-8.94 0-2.58.92-5.01 2.86-7.44 6.32"/> },
-            { id: "visualizer", label: "Visualize", icon: <rect x="3" y="3" width="18" height="18" rx="2"/>, icon2: <><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></> },
-            { id: "shop", label: "Shop", icon: <path d="M6 6h15l-1.5 9h-12z"/>, icon2: <><path d="M6 6l-2-3H2"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/></> },
+            { id: "home",       label: "Home",    icon: <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>,                    icon2: <polyline points="9 22 9 12 15 12 15 22"/> },
+            { id: "colours",    label: "Colours", icon: <circle cx="12" cy="12" r="10"/>,                                             icon2: <path d="M8.56 2.75c4.37 6.03 6.02 9.42 8.03 17.72m2.54-15.38c-3.72 4.35-8.94 5.66-16.88 5.85m19.5 1.9c-3.5-.93-6.63-.82-8.94 0-2.58.92-5.01 2.86-7.44 6.32"/> },
+            { id: "visualizer", label: "Visualize",icon: <rect x="3" y="3" width="18" height="18" rx="2"/>,                         icon2: <><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></> },
+            { id: "shop",       label: "Shop",    icon: <path d="M6 6h15l-1.5 9h-12z"/>,                                             icon2: <><path d="M6 6l-2-3H2"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/></> },
+            { id: "track",      label: "Track",   icon: <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>,                 icon2: <circle cx="12" cy="10" r="3"/> },
           ].map(({ id, label, icon, icon2 }) => {
             const active = activePage === id;
             return (
@@ -919,12 +926,14 @@ export default function App() {
             <div className="text-5xl mb-4">🎉</div>
             <div className="font-display text-[28px] mb-2">Order Placed!</div>
             <p className="mm-muted text-[14.5px] mb-2">Your Keekorok paints are on their way.</p>
-            <div className="font-mono2 text-[13px] px-4 py-2 rounded-full bg-white border inline-block mb-6" style={{ borderColor: "#e2d3b7" }}>
+            <div className="font-mono2 text-[13px] px-4 py-2 rounded-full bg-white border inline-block mb-4" style={{ borderColor: "#e2d3b7" }}>
               Ref: {orderSuccess.invoice}
             </div>
-            <button onClick={() => setOrderSuccess(null)} className="btn btn-primary w-full py-[13px] text-[14.5px]">
-              Continue Shopping
-            </button>
+            <p className="text-[12.5px] mm-muted mb-6">Use your phone number to track this order anytime.</p>
+            <div className="flex flex-col gap-2">
+              <button onClick={() => { setOrderSuccess(null); navigate("track"); }} className="btn btn-ghost w-full py-[11px] text-[13.5px]">Track My Order 📦</button>
+              <button onClick={() => setOrderSuccess(null)} className="btn btn-primary w-full py-[13px] text-[14.5px]">Continue Shopping</button>
+            </div>
           </div>
         </div>
       )}

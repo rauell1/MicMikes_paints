@@ -2,10 +2,12 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { neon } from "@neondatabase/serverless";
 
 // Hobby plan caps deployments at 12 serverless functions.
-// This file handles all visualizer-related read-only catalogue endpoints:
-//   GET /api/colours              — full colour list
-//   GET /api/colours?popular=1    — top 5 colours (last 30 days)
-//   GET /api/colours?type=rooms   — rooms for the visualizer
+// This file handles all read-only catalogue endpoints:
+//   GET /api/colours               — full colour list
+//   GET /api/colours?popular=1     — top 5 colours (last 30 days)
+//   GET /api/colours?type=rooms    — rooms for the visualizer
+//   GET /api/colours?type=products — products + price variants (merged from
+//                                    the old /api/products to free a fn slot)
 
 // ---------------------------------------------------------------------------
 // Hardcoded fallback — returned when the DB has no colours yet.
@@ -47,6 +49,15 @@ const FALLBACK_ROOMS = [
   { id: "fr-03", name: "Kitchen",      photo: "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=1200&q=80", wallMask: null },
 ];
 
+const FALLBACK_PRODUCTS = [
+  { id: "fallback-1", slug: "keekorok-matte-emulsion", name: "Keekorok Matte Emulsion", blurb: "Smooth, washable flat finish for interior walls.", category: "interior", image: null, baseKes: { "1L": 950, "4L": 3200, "20L": 13500 } },
+  { id: "fallback-2", slug: "satin-silk-finish", name: "Satin Silk Finish", blurb: "Low-sheen satin for living areas and bedrooms.", category: "interior", image: null, baseKes: { "1L": 1100, "4L": 3800, "20L": 16000 } },
+  { id: "fallback-3", slug: "eggshell-heritage", name: "Eggshell Heritage", blurb: "Classic eggshell sheen, perfect for trim and woodwork.", category: "interior", image: null, baseKes: { "1L": 1050, "4L": 3500, "20L": 14500 } },
+  { id: "fallback-4", slug: "semi-gloss-acrylic", name: "Semi-Gloss Acrylic", blurb: "Durable semi-gloss for kitchens, bathrooms and exterior trim.", category: "exterior", image: null, baseKes: { "1L": 1200, "4L": 4200, "20L": 17500 } },
+  { id: "fallback-5", slug: "weathershield-exterior", name: "Weathershield Exterior", blurb: "All-weather protection for exterior masonry and render.", category: "exterior", image: null, baseKes: { "1L": 1350, "4L": 4800, "20L": 20000 } },
+  { id: "fallback-6", slug: "universal-primer", name: "Universal Primer", blurb: "Multi-surface adhesion primer for interior and exterior use.", category: "primer", image: null, baseKes: { "1L": 800, "4L": 2600, "20L": 10500 } },
+];
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate");
 
@@ -62,6 +73,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       `;
       if (!rows.length) return res.json(FALLBACK_ROOMS);
       return res.json(rows);
+    }
+
+    // --- Products + price variants ---
+    if (req.query.type === "products") {
+      const products = await sql`
+        SELECT id, slug, name, blurb, category, image_url AS "image"
+        FROM products
+        WHERE active = true
+        ORDER BY created_at
+      `;
+      if (!products.length) return res.json(FALLBACK_PRODUCTS);
+      const variants = await sql`
+        SELECT product_id AS "productId", size, price_kes AS "priceKes"
+        FROM variants
+        ORDER BY product_id, size
+      `;
+      const result = products.map((p) => ({
+        ...p,
+        baseKes: Object.fromEntries(
+          variants.filter((v) => v.productId === p.id).map((v) => [v.size, v.priceKes])
+        ),
+      }));
+      return res.json(result);
     }
 
     // --- Popular colour IDs (last 30 days) ---
@@ -94,6 +128,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (err) {
     console.error("[api/colours] DB error, using fallback:", err);
     if (req.query.type === "rooms") return res.json(FALLBACK_ROOMS);
+    if (req.query.type === "products") return res.json(FALLBACK_PRODUCTS);
     if (req.query.popular) return res.json(FALLBACK_COLOURS.slice(0, 5).map(c => c.id));
     return res.json(FALLBACK_COLOURS);
   }

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Analytics } from "@vercel/analytics/react";
 
-/* ── session id for cart event tracking ── */
 function getSessionId(): string {
   const key = "mm-session";
   let id = sessionStorage.getItem(key);
@@ -84,7 +83,6 @@ const FALLBACK_PRODUCTS: Product[] = [
   },
 ];
 
-/* ── VisualizerCanvas ── */
 function VisualizerCanvas({ room, colour, finish }: { room: Room; colour: Colour; finish: Finish }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [loaded, setLoaded] = useState(false);
@@ -139,7 +137,6 @@ function VisualizerCanvas({ room, colour, finish }: { room: Room; colour: Colour
   );
 }
 
-/* ── PaintedThumb ── */
 function PaintedThumb({ room }: { room: Room; colourId?: string | null }) {
   return (
     <div className="w-[40px] h-[30px] rounded-[7px] overflow-hidden flex-shrink-0 border border-[#3a3a3d]">
@@ -205,7 +202,7 @@ function CheckoutDialog({
   const handleSubmit = async () => {
     setSubmitting(true); setError("");
     try {
-      // Map cart items to the shape api/orders expects
+      // 1. Create the order — maps cart[] → items[] with productSlug
       const items = cart.map(i => ({
         productSlug: i.productSlug,
         colourId:    i.colourId || null,
@@ -214,38 +211,51 @@ function CheckoutDialog({
         quantity:    i.quantity,
       }));
 
-      const res = await fetch("/api/orders", {
+      const orderRes = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, email, phone, county, town, address, notes, payMethod, items }),
       });
 
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({})) as { error?: string; errors?: Record<string, string> };
+      if (!orderRes.ok) {
+        const body = await orderRes.json().catch(() => ({})) as { error?: string; errors?: Record<string, string> };
         const msg = body.errors ? Object.values(body.errors)[0] : (body.error ?? "Order failed");
         throw new Error(String(msg));
       }
 
-      const orderData = await res.json() as { reference?: string; orderId?: string };
-      const invoice = orderData.reference ?? `INV-${Date.now()}`;
+      // api/orders returns: { orderId, reference, subtotalKes, deliveryKes, totalKes }
+      const orderData = await orderRes.json() as { orderId: string; reference: string; totalKes: number };
+      const { orderId, reference: invoice, totalKes: confirmedTotal } = orderData;
 
       if (payMethod === "mpesa") {
         setMpesaStatus("pending");
+        // 2. Initiate STK push — api/mpesa/stkpush expects: { orderId, phone, amountKes }
         const mpesaRes = await fetch("/api/mpesa/stkpush", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone, amount: total, invoice }),
+          body: JSON.stringify({ orderId, phone, amountKes: confirmedTotal }),
         });
-        if (mpesaRes.ok) {
-          const mpesaData = await mpesaRes.json() as { CheckoutRequestID?: string };
-          const checkoutRequestId = mpesaData.CheckoutRequestID;
-          if (checkoutRequestId) { await pollMpesaStatus(checkoutRequestId, invoice); }
-          else { onSuccess({ invoice }); }
-        } else { setMpesaStatus("failed"); setError("Failed to initiate M-Pesa payment. Please try again."); }
+
+        if (!mpesaRes.ok) {
+          const errBody = await mpesaRes.json().catch(() => ({})) as { error?: string };
+          setMpesaStatus("failed");
+          throw new Error(errBody.error ?? "Failed to initiate M-Pesa payment. Please try again.");
+        }
+
+        const mpesaData = await mpesaRes.json() as { checkoutRequestId?: string; customerMessage?: string };
+        const checkoutRequestId = mpesaData.checkoutRequestId;
+        if (checkoutRequestId) {
+          await pollMpesaStatus(checkoutRequestId, invoice);
+        } else {
+          // STK push accepted but no polling ID — treat as success
+          onSuccess({ invoice });
+        }
       } else {
+        // Card / other — order already created, just confirm
         onSuccess({ invoice });
       }
     } catch (err) {
+      if (mpesaStatus !== "failed") setMpesaStatus("idle");
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again or call us.");
     } finally {
       setSubmitting(false);
@@ -270,6 +280,7 @@ function CheckoutDialog({
             </svg>
           </button>
         </div>
+
         <div className="overflow-y-auto flex-1 px-6 py-5 space-y-4">
           {/* Step indicators */}
           <div className="flex gap-2 mb-2">
@@ -289,8 +300,8 @@ function CheckoutDialog({
               <div><label className="text-[12px] font-[600] block mb-[5px]">Email *</label><input className="input" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="jane@example.com" /></div>
               <div><label className="text-[12px] font-[600] block mb-[5px]">Phone (M-Pesa) *</label><input className="input" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="07xx xxx xxx" type="tel" /></div>
               <div className="grid grid-cols-2 gap-3">
-                <div><label className="text-[12px] font-[600] block mb-[5px]">County *</label><input className="input" value={county} onChange={e=>setCounty(e.target.value)} placeholder="e.g. Nairobi" /></div>
-                <div><label className="text-[12px] font-[600] block mb-[5px]">Town *</label><input className="input" value={town} onChange={e=>setTown(e.target.value)} placeholder="e.g. Westlands" /></div>
+                <div><label className="text-[12px] font-[600] block mb-[5px]">County *</label><input className="input" value={county} onChange={e=>setCounty(e.target.value)} placeholder="e.g. Kiambu" /></div>
+                <div><label className="text-[12px] font-[600] block mb-[5px]">Town *</label><input className="input" value={town} onChange={e=>setTown(e.target.value)} placeholder="e.g. Ruiru" /></div>
               </div>
               <div><label className="text-[12px] font-[600] block mb-[5px]">Street / Estate *</label><input className="input" value={address} onChange={e=>setAddress(e.target.value)} placeholder="Bensam Road, Apt 3A" /></div>
               <div><label className="text-[12px] font-[600] block mb-[5px]">Notes (optional)</label><textarea className="input" rows={2} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Gate colour, special instructions…" style={{ resize: "none" }} /></div>
@@ -387,9 +398,7 @@ export default function App() {
       const cols = Array.isArray(c) && c.length > 0 ? (c as Colour[]) : FALLBACK_COLOURS;
       const prods = Array.isArray(p) && p.length > 0 ? (p as Product[]) : FALLBACK_PRODUCTS;
       const dbRooms = Array.isArray(r) && r.length > 0 ? (r as Room[]) : FALLBACK_ROOMS;
-      setColours(cols);
-      setProducts(prods);
-      setRooms(dbRooms);
+      setColours(cols); setProducts(prods); setRooms(dbRooms);
     }).finally(() => setDataLoading(false));
   }, []);
 
@@ -531,7 +540,6 @@ export default function App() {
         @keyframes shimmer { from{ background-position:200% 0; } to{ background-position:-200% 0; } }
       `}</style>
 
-      {/* 1. Announcement bar */}
       <div className="w-full text-[11.5px] sm:text-[12.5px] tracking-wide" style={{ backgroundColor: "#2B2B2E", color: "#F8F4EF" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-8 py-[10px] flex items-center justify-center gap-4 text-center">
           <span className="font-tag text-[15px] sm:text-[16px] italic">Bring Walls to Life — Colour That Lasts. Style That Inspires.</span>
@@ -540,12 +548,11 @@ export default function App() {
         </div>
       </div>
 
-      {/* 2. Sticky header */}
       <header className="sticky top-0 z-40 border-b" style={{ backgroundColor: "rgba(248,244,239,0.93)", backdropFilter: "blur(10px)", borderColor: "#e8dcc7" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-8 h-[68px] flex items-center justify-between gap-4">
           <button onClick={() => navigate("home")} className="flex items-center gap-[11px] min-w-0">
             <div className="w-[41px] h-[41px] rounded-[13px] flex items-center justify-center text-white" style={{ backgroundColor: "#B84A32" }} aria-label="MicMikes Paints">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/>
                 <circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/>
                 <path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8z"/>
@@ -556,27 +563,22 @@ export default function App() {
               <div className="font-tag text-[12.5px] -mt-[2px]" style={{ color: "#7b7468" }}>KEEKOROK</div>
             </div>
           </button>
-
-          <nav className="hidden lg:flex items-center gap-8 text-[14.5px] font-[500]" aria-label="Primary">
+          <nav className="hidden lg:flex items-center gap-8 text-[14.5px] font-[500]">
             {[["Home","home"],["Colours","colours"],["Visualizer","visualizer"],["Shop","shop"]].map(([label,id]) => (
-              <button key={id} onClick={() => navigate(id)}
-                className="hover:opacity-70 transition-opacity relative"
-                style={{ color: activePage === id ? "#B84A32" : undefined }}>
+              <button key={id} onClick={() => navigate(id)} className="hover:opacity-70 transition-opacity relative" style={{ color: activePage === id ? "#B84A32" : undefined }}>
                 {label}
                 {activePage === id && <span className="absolute -bottom-[22px] left-0 right-0 h-[2px] rounded-full" style={{ background: "#B84A32" }} />}
               </button>
             ))}
           </nav>
-
           <div className="flex items-center gap-2 sm:gap-3">
             <button onClick={() => setCartOpen(true)} className="btn btn-ghost px-[14px] sm:px-[18px] py-[9px] sm:py-[10px] text-[13px] relative" aria-label="Open cart">
               <span className="hidden sm:inline">Cart</span>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="sm:ml-1">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="sm:ml-1">
                 <path d="M6 6h15l-1.5 9h-12z"/><path d="M6 6l-2-3H2"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/>
               </svg>
               {cartCount > 0 && (
-                <span className="absolute -top-[7px] -right-[7px] min-w-[22px] h-[22px] px-[6px] rounded-full text-[11px] font-[700] text-white flex items-center justify-center"
-                  style={{ backgroundColor: "#B84A32" }}>{cartCount}</span>
+                <span className="absolute -top-[7px] -right-[7px] min-w-[22px] h-[22px] px-[6px] rounded-full text-[11px] font-[700] text-white flex items-center justify-center" style={{ backgroundColor: "#B84A32" }}>{cartCount}</span>
               )}
             </button>
           </div>
@@ -585,21 +587,14 @@ export default function App() {
 
       <main className="flex-1" style={{ paddingBottom: "calc(72px + env(safe-area-inset-bottom, 0px))" }}>
 
-        {/* 3. Hero */}
         <section id="home" className={`relative ${activePage === "home" ? "block pg-enter" : "hidden lg:block"}`}>
           <div className="max-w-7xl mx-auto px-4 sm:px-8 pt-10 sm:pt-16 pb-10 lg:pb-16">
             <div className="grid lg:grid-cols-12 gap-8 lg:gap-10 items-center">
               <div className="lg:col-span-6">
-                <div className="inline-flex items-center gap-2 text-[11px] font-mono2 px-3 py-[6px] rounded-full mb-4 bg-white border" style={{ borderColor: "#e7d7be", color: "#B84A32" }}>
-                  KEEKOROK EDITION • NAIROBI • KES
-                </div>
-                <h1 className="font-display text-[40px] sm:text-[56px] md:text-[64px] leading-[0.95] tracking-[-0.017em]">
-                  Bring Walls<br/>to Life
-                </h1>
+                <div className="inline-flex items-center gap-2 text-[11px] font-mono2 px-3 py-[6px] rounded-full mb-4 bg-white border" style={{ borderColor: "#e7d7be", color: "#B84A32" }}>KEEKOROK EDITION • NAIROBI • KES</div>
+                <h1 className="font-display text-[40px] sm:text-[56px] md:text-[64px] leading-[0.95] tracking-[-0.017em]">Bring Walls<br/>to Life</h1>
                 <p className="font-tag text-[22px] sm:text-[26px] mt-3" style={{ color: "#5d5850" }}>Colour That Lasts. Style That Inspires.</p>
-                <p className="max-w-[520px] text-[15.5px] leading-relaxed mm-muted mt-5">
-                  Keekorok paint system — 20 curated Kenyan shades, M-Pesa checkout, next-day Nairobi delivery. Premium emulsion, eggshell, satin &amp; semi-gloss.
-                </p>
+                <p className="max-w-[520px] text-[15.5px] leading-relaxed mm-muted mt-5">Keekorok paint system — 20 curated Kenyan shades, M-Pesa checkout, next-day Nairobi delivery. Premium emulsion, eggshell, satin &amp; semi-gloss.</p>
                 <div className="flex flex-wrap gap-3 mt-7">
                   <button onClick={() => navigate("colours")} className="btn btn-primary px-[22px] py-[13px] text-[14.5px]">Find Your Perfect Shade →</button>
                   <button onClick={() => navigate("visualizer")} className="btn btn-ghost px-[22px] py-[13px] text-[14.5px]">Open Visualizer</button>
@@ -612,7 +607,7 @@ export default function App() {
                 <div className="mm-card rounded-[28px] overflow-hidden mm-shadow">
                   <div className="relative">
                     <img src="https://images.pexels.com/photos/1571460/pexels-photo-1571460.jpeg?auto=compress&cs=tinysrgb&w=1400" alt="Keekorok living room" className="w-full h-[340px] sm:h-[430px] object-cover" loading="eager" />
-                    <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(43,43,46,0.08) 0%, rgba(43,43,46,0.22) 100%)"}}/> 
+                    <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(43,43,46,0.08) 0%, rgba(43,43,46,0.22) 100%)" }}/>
                     <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between gap-3">
                       <div className="px-[14px] py-[9px] rounded-[14px] bg-white/95 text-[13px] font-[600]">Ocean Breeze • Satin</div>
                       <div className="px-[12px] py-[8px] rounded-full text-[11px] font-mono2 bg-[#2B2B2E] text-[#F8F4EF]">Keekorok</div>
@@ -630,24 +625,20 @@ export default function App() {
           </div>
         </section>
 
-        {/* 4. Colour Explorer */}
         <section id="colours" className={`py-12 sm:py-16 ${activePage === "colours" ? "block pg-enter" : "hidden lg:block"}`}>
           <div className="max-w-7xl mx-auto px-4 sm:px-8">
             <div className="max-w-[760px] mb-6">
               <h2 className="font-display text-[30px] sm:text-[36px]">Colour Explorer</h2>
               <p className="mm-muted mt-2">20 Kenyan-inspired Keekorok tones. Tap any swatch — it loads instantly in the visualizer.</p>
             </div>
-            <div className="flex flex-wrap gap-[9px] mb-5" role="tablist" aria-label="Colour families">
+            <div className="flex flex-wrap gap-[9px] mb-5">
               {ALL_FAMILIES.map(f => (
-                <button key={f} role="tab" aria-selected={familyFilter === f} onClick={() => setFamilyFilter(f)}
-                  className={`chip ${familyFilter === f ? "active" : ""}`}>{f}</button>
+                <button key={f} onClick={() => setFamilyFilter(f)} className={`chip ${familyFilter === f ? "active" : ""}`}>{f}</button>
               ))}
             </div>
             <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-3">
               {filteredColours.map(c => (
-                <button key={c.id} onClick={() => { setVizColourId(c.id); navigate("visualizer"); }}
-                  title={c.name} aria-label={`${c.name} — click to visualize`}
-                  className="flex flex-col items-center gap-[6px] group">
+                <button key={c.id} onClick={() => { setVizColourId(c.id); navigate("visualizer"); }} title={c.name} aria-label={`${c.name} — click to visualize`} className="flex flex-col items-center gap-[6px] group">
                   <div className={`swatch ${vizColour?.id === c.id ? "active" : ""}`} style={{ backgroundColor: c.hex }} />
                   <span className="text-[10.5px] text-center leading-tight mm-muted group-hover:text-[#2B2B2E] transition-colors line-clamp-2">{c.name}</span>
                 </button>
@@ -662,8 +653,7 @@ export default function App() {
                     if (!c) return null;
                     return (
                       <button key={c.id} onClick={() => { setVizColourId(c.id); navigate("visualizer"); }}
-                        className="flex items-center gap-2 px-3 py-[8px] rounded-full border bg-white text-[13px] font-[500]"
-                        style={{ borderColor: "#e2d3b7" }}>
+                        className="flex items-center gap-2 px-3 py-[8px] rounded-full border bg-white text-[13px] font-[500]" style={{ borderColor: "#e2d3b7" }}>
                         <span className="w-4 h-4 rounded-full border border-[#ddd]" style={{ backgroundColor: c.hex }} />
                         {c.name}
                       </button>
@@ -675,7 +665,6 @@ export default function App() {
           </div>
         </section>
 
-        {/* 5. Visualizer */}
         <section id="visualizer" className={`py-12 sm:py-16 border-t ${activePage === "visualizer" ? "block pg-enter" : "hidden lg:block"}`} style={{ borderColor: "#ebe2d2" }}>
           <div className="max-w-7xl mx-auto px-4 sm:px-8">
             <div className="max-w-[760px] mb-6">
@@ -712,15 +701,13 @@ export default function App() {
                     <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-2">Finish</div>
                     <div className="flex flex-wrap gap-2 mb-4">
                       {(["Matte","Eggshell","Satin","Semi-Gloss"] as Finish[]).map(f => (
-                        <button key={f} onClick={() => setVizFinish(f)}
-                          className={`chip text-[12px] ${vizFinish === f ? "active" : ""}`}>{f}</button>
+                        <button key={f} onClick={() => setVizFinish(f)} className={`chip text-[12px] ${vizFinish === f ? "active" : ""}`}>{f}</button>
                       ))}
                     </div>
                     <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-2">Size</div>
                     <div className="flex gap-2 mb-5">
                       {(["1L","4L","20L"] as Size[]).map(s => (
-                        <button key={s} onClick={() => setVizSize(s)}
-                          className={`chip ${vizSize === s ? "active" : ""}`}>{s}</button>
+                        <button key={s} onClick={() => setVizSize(s)} className={`chip ${vizSize === s ? "active" : ""}`}>{s}</button>
                       ))}
                     </div>
                     {products.length > 0 && (() => {
@@ -738,36 +725,29 @@ export default function App() {
                     <div className="flex flex-wrap gap-[8px]">
                       {colours.slice(0, 20).map(c => (
                         <button key={c.id} onClick={() => setVizColourId(c.id)} title={c.name}
-                          className={`swatch w-[36px] h-[36px] ${vizColour.id === c.id ? "active" : ""}`}
-                          style={{ backgroundColor: c.hex }} />
+                          className={`swatch w-[36px] h-[36px] ${vizColour.id === c.id ? "active" : ""}`} style={{ backgroundColor: c.hex }} />
                       ))}
                     </div>
                   </div>
                 </div>
               </div>
             ) : (
-              <div className="text-center py-16 mm-muted">
-                {dataLoading ? "Loading visualizer…" : "No colours available yet."}
-              </div>
+              <div className="text-center py-16 mm-muted">{dataLoading ? "Loading visualizer…" : "No colours available yet."}</div>
             )}
           </div>
         </section>
 
-        {/* 6. Shop */}
         <section id="shop" className={`py-12 sm:py-16 border-t ${activePage === "shop" ? "block pg-enter" : "hidden lg:block"}`} style={{ borderColor: "#ebe2d2" }}>
           <div className="max-w-7xl mx-auto px-4 sm:px-8">
             <div className="max-w-[760px] mb-6">
               <h2 className="font-display text-[30px] sm:text-[36px]">Shop</h2>
               <p className="mm-muted mt-2">Premium Keekorok paints, primers &amp; supplies. M-Pesa checkout. Next-day Nairobi delivery.</p>
             </div>
-
             <div className="mm-card rounded-[20px] p-5 mb-6">
               <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-3">Choose Your Colour</div>
               <div className="flex flex-wrap gap-[10px] mb-4">
                 {colours.slice(0, 20).map(c => (
-                  <button key={c.id} onClick={() => setShopColourId(c.id)} title={c.name}
-                    className={`swatch ${shopColour?.id === c.id ? "active" : ""}`}
-                    style={{ backgroundColor: c.hex }} />
+                  <button key={c.id} onClick={() => setShopColourId(c.id)} title={c.name} className={`swatch ${shopColour?.id === c.id ? "active" : ""}`} style={{ backgroundColor: c.hex }} />
                 ))}
               </div>
               {shopColour && (
@@ -778,7 +758,6 @@ export default function App() {
                 </div>
               )}
             </div>
-
             <div className="flex flex-wrap gap-4 mb-6">
               <div>
                 <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-2">Size</div>
@@ -797,7 +776,6 @@ export default function App() {
                 </div>
               </div>
             </div>
-
             {dataLoading ? (
               <div className="text-center py-12 mm-muted">Loading products…</div>
             ) : products.length === 0 ? (
@@ -815,10 +793,7 @@ export default function App() {
                         </div>
                       )}
                       <div className="absolute top-3 left-3">
-                        <span className="text-[11px] font-[600] px-[10px] py-[5px] rounded-full bg-white/90"
-                          style={{ color: prod.category === "Paint" ? "#B84A32" : prod.category === "Primer" ? "#4FB9B0" : "#2B2B2E" }}>
-                          {prod.category}
-                        </span>
+                        <span className="text-[11px] font-[600] px-[10px] py-[5px] rounded-full bg-white/90" style={{ color: prod.category === "Paint" ? "#B84A32" : prod.category === "Primer" ? "#4FB9B0" : "#2B2B2E" }}>{prod.category}</span>
                       </div>
                     </div>
                     <div className="p-4 sm:p-5 flex flex-col flex-1">
@@ -829,10 +804,8 @@ export default function App() {
                           <div className="font-[700] text-[18px]">{kes(prod.baseKes[shopSize])}</div>
                           <div className="text-[11.5px] mm-muted">{shopSize} · {shopFinish}</div>
                         </div>
-                        <button
-                          onClick={() => shopColour && addItem({ productId: prod.id, productName: prod.name, productSlug: prod.slug, colourId: shopColour.id, colourName: shopColour.name, colourHex: shopColour.hex, size: shopSize, finish: shopFinish, unitKes: prod.baseKes[shopSize] })}
-                          disabled={!shopColour}
-                          className="btn btn-primary px-[18px] py-[11px] text-[13.5px] disabled:opacity-50">
+                        <button onClick={() => shopColour && addItem({ productId: prod.id, productName: prod.name, productSlug: prod.slug, colourId: shopColour.id, colourName: shopColour.name, colourHex: shopColour.hex, size: shopSize, finish: shopFinish, unitKes: prod.baseKes[shopSize] })}
+                          disabled={!shopColour} className="btn btn-primary px-[18px] py-[11px] text-[13.5px] disabled:opacity-50">
                           Add to Cart
                         </button>
                       </div>
@@ -846,10 +819,8 @@ export default function App() {
 
       </main>
 
-      {/* 7. Mobile bottom nav */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 border-t"
-        style={{ backgroundColor: "rgba(248,244,239,0.97)", backdropFilter: "blur(12px)", borderColor: "#e8dcc7", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
-        aria-label="Mobile navigation">
+        style={{ backgroundColor: "rgba(248,244,239,0.97)", backdropFilter: "blur(12px)", borderColor: "#e8dcc7", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
         <div className="flex items-stretch h-[64px]">
           {[
             { id: "home", label: "Home", icon: <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>, icon2: <polyline points="9 22 9 12 15 12 15 22"/> },
@@ -859,10 +830,8 @@ export default function App() {
           ].map(({ id, label, icon, icon2 }) => {
             const active = activePage === id;
             return (
-              <button key={id} onClick={() => navigate(id)}
-                className="flex-1 flex flex-col items-center justify-center gap-[3px] transition-opacity"
-                style={{ color: active ? "#B84A32" : "#7b7468" }}
-                aria-current={active ? "page" : undefined}>
+              <button key={id} onClick={() => navigate(id)} className="flex-1 flex flex-col items-center justify-center gap-[3px] transition-opacity"
+                style={{ color: active ? "#B84A32" : "#7b7468" }} aria-current={active ? "page" : undefined}>
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? "2.2" : "1.7"} strokeLinecap="round" strokeLinejoin="round">
                   {icon}{icon2}
                 </svg>
@@ -873,14 +842,13 @@ export default function App() {
         </div>
       </nav>
 
-      {/* 8. Cart drawer */}
       {cartOpen && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/40 fade" onClick={() => setCartOpen(false)} />
           <div className="relative w-full max-w-[420px] h-full bg-[#F8F4EF] sheet-panel flex flex-col shadow-2xl">
             <div className="px-6 pt-6 pb-4 border-b flex items-center justify-between" style={{ borderColor: "#e7d9c3" }}>
               <div className="font-display text-[22px]">Your Cart</div>
-              <button onClick={() => setCartOpen(false)} className="w-9 h-9 rounded-full bg-white border flex items-center justify-center" style={{ borderColor: "#e3d5bc" }} aria-label="Close cart">
+              <button onClick={() => setCartOpen(false)} className="w-9 h-9 rounded-full bg-white border flex items-center justify-center" style={{ borderColor: "#e3d5bc" }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
@@ -904,13 +872,11 @@ export default function App() {
                         <div className="font-[700] text-[14px] mt-[2px]">{kes(item.unitKes * item.quantity)}</div>
                       </div>
                       <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                        <button onClick={() => removeLine(key)} className="text-[11px] mm-muted hover:text-red-500 transition-colors" aria-label="Remove">✕</button>
+                        <button onClick={() => removeLine(key)} className="text-[11px] mm-muted hover:text-red-500 transition-colors">✕</button>
                         <div className="flex items-center gap-1">
-                          <button onClick={() => item.quantity > 1 ? updateQty(key, item.quantity - 1) : removeLine(key)}
-                            className="w-7 h-7 rounded-full bg-white border flex items-center justify-center text-[15px]" style={{ borderColor: "#e2d3b7" }}>−</button>
+                          <button onClick={() => item.quantity > 1 ? updateQty(key, item.quantity - 1) : removeLine(key)} className="w-7 h-7 rounded-full bg-white border flex items-center justify-center text-[15px]" style={{ borderColor: "#e2d3b7" }}>−</button>
                           <span className="w-6 text-center text-[13px] font-[600]">{item.quantity}</span>
-                          <button onClick={() => updateQty(key, item.quantity + 1)}
-                            className="w-7 h-7 rounded-full bg-white border flex items-center justify-center text-[15px]" style={{ borderColor: "#e2d3b7" }}>+</button>
+                          <button onClick={() => updateQty(key, item.quantity + 1)} className="w-7 h-7 rounded-full bg-white border flex items-center justify-center text-[15px]" style={{ borderColor: "#e2d3b7" }}>+</button>
                         </div>
                       </div>
                     </div>
@@ -920,55 +886,5 @@ export default function App() {
             </div>
             {cart.length > 0 && (
               <div className="px-6 py-5 border-t space-y-3" style={{ borderColor: "#e7d9c3" }}>
-                <div className="flex justify-between text-[13.5px]">
-                  <span className="mm-muted">Subtotal</span><span className="font-[600]">{kes(subtotal)}</span>
-                </div>
-                <div className="flex justify-between text-[13px] mm-muted">
-                  <span>Delivery</span><span>{deliveryFee === 0 ? "Free" : kes(deliveryFee)}</span>
-                </div>
-                <div className="flex justify-between font-[700] text-[17px] pt-1 border-t" style={{ borderColor: "#ebe2d2" }}>
-                  <span>Total</span><span>{kes(totalKes)}</span>
-                </div>
-                <button onClick={() => { setCartOpen(false); setCheckoutOpen(true); }} className="btn btn-dark w-full py-[14px] text-[15px]">
-                  Proceed to Checkout →
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* 9. Checkout */}
-      {checkoutOpen && !orderSuccess && (
-        <CheckoutDialog
-          subtotal={subtotal} deliveryFee={deliveryFee} total={totalKes} cartCount={cartCount} cart={cart}
-          onClose={() => setCheckoutOpen(false)}
-          onSuccess={meta => { setOrderSuccess(meta); setCart([]); setCheckoutOpen(false); }}
-        />
-      )}
-
-      {/* 10. Order success */}
-      {orderSuccess && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/50 fade">
-          <div className="w-full max-w-[440px] rounded-[28px] p-8 text-center mm-shadow" style={{ background: "#F8F4EF" }}>
-            <div className="text-5xl mb-4">🎨</div>
-            <div className="font-display text-[26px] mb-2">Order Placed!</div>
-            <p className="mm-muted text-[14px] mb-4">Thank you! Your Keekorok paints are on their way. We'll call to confirm delivery.</p>
-            <div className="font-mono2 text-[12px] mm-muted mb-6">Invoice: {orderSuccess.invoice}</div>
-            <button onClick={() => setOrderSuccess(null)} className="btn btn-primary px-8 py-[13px] text-[15px]">Done</button>
-          </div>
-        </div>
-      )}
-
-      {/* 11. Toast */}
-      {toast && (
-        <div className="fixed bottom-[88px] left-1/2 -translate-x-1/2 z-[100] px-5 py-[11px] rounded-full text-[13.5px] font-[600] fade"
-          style={{ background: "#2B2B2E", color: "#F8F4EF", boxShadow: "0 8px 28px rgba(43,43,46,.25)", whiteSpace: "nowrap" }}>
-          {toast}
-        </div>
-      )}
-
-      <Analytics />
-    </div>
-  );
-}
+                <div className="flex justify-between text-[13.5px]"><span className="mm-muted">Subtotal</span><span className="font-[600]">{kes(subtotal)}</span></div>
+                <div className="flex justify-between text-[13px] mm-muted"><span>Delivery</span><span>{deliveryFee === 0 ? "Free" : kes(deliveryFee)}</span></di

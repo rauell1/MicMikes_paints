@@ -9,10 +9,10 @@ const ALLOWED_ORIGINS = [
   "http://localhost:3000",
 ];
 
-function cors(req: VercelRequest, res: VercelResponse) {
+function cors(req: VercelRequest, res: VercelResponse, methods = "POST, GET, OPTIONS") {
   const origin = req.headers.origin ?? "";
   if (ALLOWED_ORIGINS.includes(origin)) res.setHeader("Access-Control-Allow-Origin", origin);
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", methods);
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
@@ -67,43 +67,50 @@ async function fetchAccessToken(): Promise<string> {
   return data.access_token;
 }
 
-// ── GET /api/mpesa/stkpush?id=<checkoutRequestId> — poll payment status ──────
-async function handleStatusGet(req: VercelRequest, res: VercelResponse) {
-  const checkoutRequestId = req.query.id as string | undefined;
-  if (!checkoutRequestId)
-    return res.status(400).json({ error: "checkoutRequestId (?id=) is required" });
+/* ────────────────────────────────────────────────────────────────────────────
+   HANDLER
+   POST /api/mpesa/stkpush            — initiate STK push
+   GET  /api/mpesa/stkpush?_r=status&id=<checkoutRequestId>  — poll status
+   The old URL /api/mpesa/status/:id is rewritten by vercel.json → ?_r=status&id=:id
+──────────────────────────────────────────────────────────────────────────── */
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  cors(req, res);
+  if (req.method === "OPTIONS") return res.status(200).end();
 
-  if (!process.env.DATABASE_URL)
-    return res.status(503).json({ error: "Database not configured" });
+  /* ── GET ?_r=status&id=<checkoutRequestId> ─────────────────────────────── */
+  if (req.method === "GET" && req.query._r === "status") {
+    const checkoutRequestId = req.query.id as string | undefined;
+    if (!checkoutRequestId)
+      return res.status(400).json({ error: "id (checkoutRequestId) is required" });
+    if (!process.env.DATABASE_URL)
+      return res.status(503).json({ error: "Database not configured" });
 
-  const sql = neon(process.env.DATABASE_URL!);
-  const [payment] = await sql`
-    SELECT mp.status, mp.mpesa_receipt, mp.failure_reason, mp.result_code,
-           mp.amount_kes, mp.completed_at,
-           o.id AS order_id, o.name AS customer_name, o.total_kes
-    FROM mpesa_payments mp
-    JOIN orders o ON o.id = mp.order_id
-    WHERE mp.checkout_request_id = ${checkoutRequestId}
-  `;
+    const sql = neon(process.env.DATABASE_URL!);
+    const [payment] = await sql`
+      SELECT mp.status, mp.mpesa_receipt, mp.failure_reason, mp.result_code,
+             mp.amount_kes, mp.completed_at,
+             o.id AS order_id, o.name AS customer_name, o.total_kes
+      FROM mpesa_payments mp
+      JOIN orders o ON o.id = mp.order_id
+      WHERE mp.checkout_request_id = ${checkoutRequestId}
+    `;
+    if (!payment) return res.status(404).json({ error: "Payment not found" });
 
-  if (!payment) return res.status(404).json({ error: "Payment not found" });
+    return res.status(200).json({
+      status:        (payment.status as string).toLowerCase(),
+      receipt:       payment.mpesa_receipt ?? null,
+      failureReason: payment.failure_reason ?? null,
+      amountKes:     payment.amount_kes,
+      completedAt:   payment.completed_at ?? null,
+      orderId:       payment.order_id,
+      customerName:  payment.customer_name,
+      totalKes:      payment.total_kes,
+    });
+  }
 
-  const normalizedStatus = (payment.status as string).toLowerCase();
+  /* ── POST — initiate STK push ───────────────────────────────────────────── */
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  return res.status(200).json({
-    status:        normalizedStatus,
-    receipt:       payment.mpesa_receipt ?? null,
-    failureReason: payment.failure_reason ?? null,
-    amountKes:     payment.amount_kes,
-    completedAt:   payment.completed_at ?? null,
-    orderId:       payment.order_id,
-    customerName:  payment.customer_name,
-    totalKes:      payment.total_kes,
-  });
-}
-
-// ── POST /api/mpesa/stkpush — initiate STK push ───────────────────────────────
-async function handleStkPost(req: VercelRequest, res: VercelResponse) {
   const required = ["MPESA_CONSUMER_KEY", "MPESA_CONSUMER_SECRET", "MPESA_SHORTCODE", "MPESA_PASSKEY", "DATABASE_URL"];
   for (const key of required) {
     if (!process.env[key]) {
@@ -133,9 +140,9 @@ async function handleStkPost(req: VercelRequest, res: VercelResponse) {
   const isProd = process.env.MPESA_ENVIRONMENT === "production";
   const base = isProd ? "https://api.safaricom.co.ke" : "https://sandbox.safaricom.co.ke";
   const shortCode = process.env.MPESA_SHORTCODE!;
-  const passKey = process.env.MPESA_PASSKEY!;
+  const passKey   = process.env.MPESA_PASSKEY!;
   const timestamp = getEATTimestamp();
-  const password = generatePassword(shortCode, passKey, timestamp);
+  const password  = generatePassword(shortCode, passKey, timestamp);
 
   const callbackUrl = process.env.MPESA_CALLBACK_URL;
   if (!callbackUrl && !isProd) {
@@ -154,16 +161,16 @@ async function handleStkPost(req: VercelRequest, res: VercelResponse) {
 
   const stkBody = {
     BusinessShortCode: shortCode,
-    Password: password,
-    Timestamp: timestamp,
-    TransactionType: "CustomerPayBillOnline",
-    Amount: amount,
-    PartyA: normalisedPhone,
-    PartyB: shortCode,
-    PhoneNumber: normalisedPhone,
-    CallBackURL: resolvedCallbackUrl,
-    AccountReference: `MicMikes-${String(orderId).slice(-6).toUpperCase()}`,
-    TransactionDesc: "Paint order payment",
+    Password:          password,
+    Timestamp:         timestamp,
+    TransactionType:   "CustomerPayBillOnline",
+    Amount:            amount,
+    PartyA:            normalisedPhone,
+    PartyB:            shortCode,
+    PhoneNumber:       normalisedPhone,
+    CallBackURL:       resolvedCallbackUrl,
+    AccountReference:  `MicMikes-${String(orderId).slice(-6).toUpperCase()}`,
+    TransactionDesc:   "Paint order payment",
   };
 
   let stkRes: Response;
@@ -171,9 +178,9 @@ async function handleStkPost(req: VercelRequest, res: VercelResponse) {
     stkRes = await fetchWithTimeout(
       `${base}/mpesa/stkpush/v1/processrequest`,
       {
-        method: "POST",
+        method:  "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify(stkBody),
+        body:    JSON.stringify(stkBody),
       }
     );
   } catch (err) {
@@ -209,15 +216,6 @@ async function handleStkPost(req: VercelRequest, res: VercelResponse) {
 
   return res.status(200).json({
     checkoutRequestId: stkData.CheckoutRequestID,
-    customerMessage: stkData.CustomerMessage ?? "Please check your phone and enter your M-Pesa PIN.",
+    customerMessage:   stkData.CustomerMessage ?? "Please check your phone and enter your M-Pesa PIN.",
   });
-}
-
-// ── Router ────────────────────────────────────────────────────────────────────
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  cors(req, res);
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method === "GET") return handleStatusGet(req, res);
-  if (req.method === "POST") return handleStkPost(req, res);
-  return res.status(405).json({ error: "Method not allowed" });
 }

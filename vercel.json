@@ -3,27 +3,28 @@
   "outputDirectory": "dist",
   "framework": null,
   "rewrites": [
-    { "source": "/api/admin/login",           "destination": "/api/admin?_r=login" },
-    { "source": "/api/admin/dashboard",       "destination": "/api/admin?_r=dashboard" },
-    { "source": "/api/admin/customers",       "destination": "/api/admin?_r=customers" },
-    { "source": "/api/admin/stock",           "destination": "/api/admin?_r=stock" },
-    { "source": "/api/admin/colours",         "destination": "/api/admin?_r=colours" },
-    { "source": "/api/admin/products",        "destination": "/api/admin?_r=products" },
-    { "source": "/api/admin/variants",        "destination": "/api/admin?_r=variants" },
-    { "source": "/api/admin/rooms",           "destination": "/api/admin?_r=rooms" },
-    { "source": "/api/admin/orders",          "destination": "/api/admin?_r=orders" },
-    { "source": "/api/admin/delivery-rates",  "destination": "/api/admin?_r=delivery-rates" },
-    { "source": "/((?!api/).*)",              "destination": "/index.html" }
+    { "source": "/api/admin/login",          "destination": "/api/admin?_r=login" },
+    { "source": "/api/admin/dashboard",      "destination": "/api/admin?_r=dashboard" },
+    { "source": "/api/admin/customers",      "destination": "/api/admin?_r=customers" },
+    { "source": "/api/admin/stock",          "destination": "/api/admin?_r=stock" },
+    { "source": "/api/admin/colours",        "destination": "/api/admin?_r=colours" },
+    { "source": "/api/admin/products",       "destination": "/api/admin?_r=products" },
+    { "source": "/api/admin/variants",       "destination": "/api/admin?_r=variants" },
+    { "source": "/api/admin/rooms",          "destination": "/api/admin?_r=rooms" },
+    { "source": "/api/admin/orders",         "destination": "/api/admin?_r=orders" },
+    { "source": "/api/admin/delivery-rates", "destination": "/api/admin?_r=delivery-rates" },
+    { "source": "/api/mpesa/status/:id",     "destination": "/api/mpesa/stkpush?_r=status&id=:id" },
+    { "source": "/((?!api/).*)",             "destination": "/index.html" }
   ],
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" },
-        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains" },
+        { "key": "X-Content-Type-Options",   "value": "nosniff" },
+        { "key": "X-Frame-Options",          "value": "DENY" },
+        { "key": "Referrer-Policy",          "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy",       "value": "camera=(), microphone=(), geolocation=()" },
+        { "key": "Strict-Transport-Security","value": "max-age=63072000; includeSubDomains" },
         {
           "key": "Content-Security-Policy",
           "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://va.vercel-scripts.com; connect-src 'self' https://vitals.vercel-insights.com; img-src 'self' data: https: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; upgrade-insecure-requests"

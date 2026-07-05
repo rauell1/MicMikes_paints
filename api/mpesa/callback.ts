@@ -63,8 +63,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const receipt = get("MpesaReceiptNumber") as string | undefined;
     const callbackAmount = get("Amount") as number | undefined;
 
-    // Log amount mismatches for auditing but do NOT block the payment from succeeding.
-    // This prevents test payments (e.g. KES 1) from getting silently swallowed.
     if (callbackAmount !== undefined && Math.abs(callbackAmount - payment.amount_kes) > 1) {
       console.warn(
         `[mpesa/callback] Amount mismatch (logged only): expected ${payment.amount_kes}, got ${callbackAmount}`
@@ -85,13 +83,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     `;
     if (!settled) { console.warn("[mpesa/callback] Race: already settled"); return ack(); }
 
-    await sql`UPDATE orders SET status = 'paid' WHERE id = ${payment.order_id}`;
+    /* ── FIX: write receipt number directly onto the order row ── */
+    await sql`
+      UPDATE orders
+      SET status = 'paid', mpesa_ref = ${receipt ?? null}, updated_at = ${now}
+      WHERE id = ${payment.order_id}
+    `;
+
     await sql`
       INSERT INTO order_events (order_id, event_type, payload)
       VALUES (${payment.order_id}, 'mpesa_success',
         ${JSON.stringify({ receipt, callbackAmount, checkoutRequestId: cb.CheckoutRequestID })}::jsonb)
     `;
-    console.log("[mpesa/callback] SUCCESS — receipt:", receipt, "amount:", callbackAmount);
+    console.log("[mpesa/callback] SUCCESS — receipt:", receipt, "order:", payment.order_id);
   } else {
     await sql`
       UPDATE mpesa_payments

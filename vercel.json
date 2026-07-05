@@ -3,13 +3,14 @@
   "outputDirectory": "dist",
   "framework": null,
   "rewrites": [
-    { "source": "/api/admin/login",    "destination": "/api/admin?_r=login" },
-    { "source": "/api/admin/colours",  "destination": "/api/admin?_r=colours" },
-    { "source": "/api/admin/products", "destination": "/api/admin?_r=products" },
-    { "source": "/api/admin/variants", "destination": "/api/admin?_r=variants" },
-    { "source": "/api/admin/rooms",    "destination": "/api/admin?_r=rooms" },
-    { "source": "/api/admin/orders",   "destination": "/api/admin?_r=orders" },
-    { "source": "/((?!api/).*)",        "destination": "/index.html" }
+    { "source": "/api/admin/login",           "destination": "/api/admin?_r=login" },
+    { "source": "/api/admin/colours",         "destination": "/api/admin?_r=colours" },
+    { "source": "/api/admin/products",        "destination": "/api/admin?_r=products" },
+    { "source": "/api/admin/variants",        "destination": "/api/admin?_r=variants" },
+    { "source": "/api/admin/rooms",           "destination": "/api/admin?_r=rooms" },
+    { "source": "/api/admin/orders",          "destination": "/api/admin?_r=orders" },
+    { "source": "/api/admin/delivery-rates",  "destination": "/api/admin/delivery-rates" },
+    { "source": "/((?!api/).*)",              "destination": "/index.html" }
   ],
   "headers": [
     {

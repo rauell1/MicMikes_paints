@@ -7,7 +7,6 @@
 // tags already live statically in index.html. All we need to do is render
 // <App/> to static HTML once and bake it into the empty #root shell so
 // crawlers and no-JS social bots receive real content instead of a blank div.
-import React from "react";
 import { renderToString } from "react-dom/server";
 import App from "../App";
 

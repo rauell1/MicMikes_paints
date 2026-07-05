@@ -21,7 +21,7 @@ type DashboardData = {
   byCounty: { county: string; orders: number; revenue_kes: number }[];
 };
 
-type Tab = "dashboard" | "colours" | "products" | "rooms" | "orders" | "delivery" | "stock" | "customers";
+type Tab = "dashboard" | "colours" | "products" | "rooms" | "orders" | "delivery" | "stock" | "customers" | "staff";
 
 const FAMILIES   = ["Neutrals","Warm Earth","Cool Green","Blue","Red & Terracotta","Yellow & Gold"];
 const CATEGORIES = ["Paint","Primer","Supplies"];
@@ -232,6 +232,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     { id:"delivery",  label:"Delivery",  icon:"🚚" },
     { id:"stock",     label:"Stock",     icon:"📋" },
     { id:"customers", label:"Customers", icon:"👤" },
+    { id:"staff",     label:"Staff",     icon:"👥" },
   ];
 
   return (
@@ -285,6 +286,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
         {tab==="delivery"  && <DeliveryTab  showToast={showToast} />}
         {tab==="stock"     && <StockTab     showToast={showToast} />}
         {tab==="customers" && <CustomersTab showToast={showToast} />}
+        {tab==="staff"     && <StaffTab     showToast={showToast} />}
       </main>
 
       {toast && (
@@ -1571,6 +1573,131 @@ function CustomersTab({ showToast }: { showToast: (m:string) => void }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/* ─── Staff (RBAC users) ─── */
+type StaffUser = { id: string; name: string; email: string; phone: string; role: string };
+
+function StaffTab({ showToast }: { showToast: (m: string) => void }) {
+  const [users, setUsers]   = useState<StaffUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [modal, setModal]   = useState<"new" | StaffUser | null>(null);
+  const [form, setForm]     = useState({ name:"", email:"", phone:"", role:"staff", password:"" });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { const d = await api("/api/users?_r=list&role=staff"); setUsers(d.users ?? []); }
+    catch (e) { showToast(`${e}`); }
+    finally { setLoading(false); }
+  }, [showToast]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const openNew  = () => { setForm({ name:"", email:"", phone:"", role:"staff", password:"" }); setModal("new"); };
+  const openEdit = (u: StaffUser) => { setForm({ name:u.name, email:u.email??"", phone:u.phone??"", role:u.role, password:"" }); setModal(u); };
+
+  const save = async () => {
+    const isEdit = modal !== "new" && modal !== null;
+    try {
+      if (isEdit) {
+        await api("/api/users?_r=update", { method:"PATCH", body: JSON.stringify({ id: (modal as StaffUser).id, ...form }) });
+        showToast("Staff updated");
+      } else {
+        await api("/api/users?_r=create", { method:"POST", body: JSON.stringify(form) });
+        showToast("Staff added");
+      }
+      setModal(null);
+      load();
+    } catch (e) { showToast(`${e}`); }
+  };
+
+  const remove = async (u: StaffUser) => {
+    if (!confirm(`Delete ${u.name}?`)) return;
+    try { await api(`/api/users?_r=delete&id=${u.id}`, { method:"DELETE" }); showToast("Deleted"); load(); }
+    catch (e) { showToast(`${e}`); }
+  };
+
+  const filtered = users.filter(u => {
+    const q = search.toLowerCase();
+    return !q || u.name.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q) || u.phone?.includes(q);
+  });
+
+  if (loading) return <Spinner />;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:22, fontWeight:600 }}>
+          Staff <span className="text-[#9b9589] text-[16px] font-normal">({users.length})</span>
+        </h2>
+        <Btn onClick={openNew}>+ Add staff</Btn>
+      </div>
+
+      <SearchBar value={search} onChange={setSearch} placeholder="Search name, email, phone…" />
+
+      {filtered.length === 0 && (
+        <p className="text-[13px] py-8 text-center" style={{ color:"#9b9589" }}>No staff members yet.</p>
+      )}
+
+      <div className="space-y-2">
+        {filtered.map(u => (
+          <div key={u.id} className="bg-white rounded-[14px] px-4 py-3 flex flex-wrap items-center gap-3 hover:shadow-sm transition"
+            style={{ border:"1px solid #ebe2d2" }}>
+            <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-[14px] font-[700]"
+              style={{ background:"#f5ede3", color:"#B84A32" }}>
+              {u.name.charAt(0).toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-[700]">{u.name}</p>
+              <div className="flex flex-wrap gap-3 mt-0.5">
+                {u.email && <span className="text-[11px]" style={{ color:"#9b9589" }}>{u.email}</span>}
+                {u.phone && <span className="text-[11px]" style={{ color:"#9b9589" }}>{u.phone}</span>}
+              </div>
+            </div>
+            <span className="text-[11px] font-[600] px-2 py-0.5 rounded-full capitalize"
+              style={{ background:"#f5ede3", color:"#B84A32" }}>{u.role}</span>
+            <div className="flex gap-2 shrink-0">
+              <Btn variant="outline" size="sm" onClick={() => openEdit(u)}>Edit</Btn>
+              <Btn variant="danger" size="sm" onClick={() => remove(u)}>Delete</Btn>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {modal && (
+        <Modal title={modal === "new" ? "Add Staff" : "Edit Staff"} onClose={() => setModal(null)}>
+          <div className="space-y-4">
+            <Field label="Name">
+              <input className={inp} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required />
+            </Field>
+            <Field label="Email">
+              <input className={inp} type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+            </Field>
+            <Field label="Phone">
+              <input className={inp} value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
+            </Field>
+            <Field label="Role">
+              <select className={sel} value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
+                <option value="staff">Staff</option>
+                <option value="admin">Admin</option>
+              </select>
+            </Field>
+            {modal === "new" && (
+              <Field label="Password" hint="Required for login">
+                <input className={inp} type="password" value={form.password}
+                  onChange={e => setForm(f => ({ ...f, password: e.target.value }))} />
+              </Field>
+            )}
+            <div className="flex gap-2 pt-1">
+              <Btn onClick={save}>{modal === "new" ? "Add staff" : "Save changes"}</Btn>
+              <Btn variant="ghost" onClick={() => setModal(null)}>Cancel</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

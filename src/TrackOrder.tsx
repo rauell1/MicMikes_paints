@@ -35,6 +35,9 @@ const STATUS_STYLES: Record<string, { bg: string; color: string; label: string; 
 
 const STEPS = ["pending", "paid", "processing", "shipped", "delivered"];
 
+const SUCCESSFUL_STATUSES  = new Set(["paid", "processing", "shipped", "delivered"]);
+const UNSUCCESSFUL_STATUSES = new Set(["pending", "cancelled"]);
+
 function StatusBadge({ status }: { status: string }) {
   const s = STATUS_STYLES[status] ?? { bg: "#f3f4f6", color: "#374151", label: status, icon: "•" };
   return (
@@ -80,6 +83,67 @@ function ProgressBar({ status }: { status: string }) {
   );
 }
 
+function OrderCard({ order }: { order: TrackedOrder }) {
+  const date = new Date(order.created_at).toLocaleDateString("en-KE", {
+    day: "numeric", month: "long", year: "numeric",
+  });
+  return (
+    <div className="mm-card rounded-[20px] overflow-hidden mm-shadow">
+      {/* Header */}
+      <div className="px-5 py-4 border-b flex flex-wrap items-start justify-between gap-3"
+        style={{ borderColor: "#ebe2d2", background: "#fffdf8" }}>
+        <div>
+          <div className="font-mono2 text-[12.5px] font-[600]" style={{ color: "#B84A32" }}>{order.reference}</div>
+          <div className="text-[12px] mm-muted mt-[2px]">{date} · {order.town}, {order.county}</div>
+        </div>
+        <StatusBadge status={order.status} />
+      </div>
+
+      {/* Progress */}
+      <div className="px-5 pt-4 pb-2">
+        <ProgressBar status={order.status} />
+      </div>
+
+      {/* Items */}
+      <div className="px-5 pb-3 space-y-2">
+        {order.items.map((item, i) => (
+          <div key={i} className="flex items-center gap-3 text-[13px]">
+            <div className="w-7 h-7 rounded-full border-2 border-white mm-shadow flex-shrink-0"
+              style={{ backgroundColor: item.colourHex }} />
+            <div className="flex-1 min-w-0">
+              <span className="font-[600] capitalize">{item.productSlug.replace(/-/g, " ")}</span>
+              <span className="mm-muted"> · {item.colourName} · {item.size} · {item.finish} × {item.quantity}</span>
+            </div>
+            <div className="font-[700] flex-shrink-0">{kes(item.unitKes * item.quantity)}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Footer */}
+      <div className="px-5 py-3 border-t flex justify-between text-[13px]" style={{ borderColor: "#ebe2d2" }}>
+        {order.delivery_kes > 0 ? (
+          <span className="mm-muted">Delivery: {kes(order.delivery_kes)}</span>
+        ) : (
+          <span className="mm-muted">Free delivery</span>
+        )}
+        <span className="font-[700] text-[15px]">Total: {kes(order.total_kes)}</span>
+      </div>
+    </div>
+  );
+}
+
+function SectionHeader({ icon, title, subtitle, color }: { icon: string; title: string; subtitle: string; color: string }) {
+  return (
+    <div className="flex items-center gap-2 mb-4">
+      <span className="text-xl">{icon}</span>
+      <div>
+        <h3 className="font-display text-[18px] font-[600]" style={{ color }}>{title}</h3>
+        <p className="text-[12px] mm-muted">{subtitle}</p>
+      </div>
+    </div>
+  );
+}
+
 export default function TrackOrder() {
   const [phone, setPhone]       = useState("");
   const [loading, setLoading]   = useState(false);
@@ -106,6 +170,9 @@ export default function TrackOrder() {
       setLoading(false);
     }
   };
+
+  const successfulOrders   = orders?.filter(o => SUCCESSFUL_STATUSES.has(o.status))  ?? [];
+  const unsuccessfulOrders = orders?.filter(o => UNSUCCESSFUL_STATUSES.has(o.status)) ?? [];
 
   return (
     <section id="track" className="py-12 sm:py-16 border-t" style={{ borderColor: "#ebe2d2" }}>
@@ -142,56 +209,38 @@ export default function TrackOrder() {
             </div>
           )}
 
-          {orders && orders.length > 0 && (
-            <div className="space-y-5">
-              {orders.map(order => {
-                const date = new Date(order.created_at).toLocaleDateString("en-KE", {
-                  day: "numeric", month: "long", year: "numeric",
-                });
-                return (
-                  <div key={order.id} className="mm-card rounded-[20px] overflow-hidden mm-shadow">
-                    {/* Header */}
-                    <div className="px-5 py-4 border-b flex flex-wrap items-start justify-between gap-3"
-                      style={{ borderColor: "#ebe2d2", background: "#fffdf8" }}>
-                      <div>
-                        <div className="font-mono2 text-[12.5px] font-[600]" style={{ color: "#B84A32" }}>{order.reference}</div>
-                        <div className="text-[12px] mm-muted mt-[2px]">{date} · {order.town}, {order.county}</div>
-                      </div>
-                      <StatusBadge status={order.status} />
-                    </div>
+          {/* ── Successful orders ── */}
+          {successfulOrders.length > 0 && (
+            <div className="mb-8">
+              <SectionHeader
+                icon="✅"
+                title="Successful Orders"
+                subtitle={`${successfulOrders.length} order${successfulOrders.length > 1 ? "s" : ""} confirmed`}
+                color="#065f46"
+              />
+              <div className="space-y-5">
+                {successfulOrders.map(order => <OrderCard key={order.id} order={order} />)}
+              </div>
+            </div>
+          )}
 
-                    {/* Progress */}
-                    <div className="px-5 pt-4 pb-2">
-                      <ProgressBar status={order.status} />
-                    </div>
-
-                    {/* Items */}
-                    <div className="px-5 pb-3 space-y-2">
-                      {order.items.map((item, i) => (
-                        <div key={i} className="flex items-center gap-3 text-[13px]">
-                          <div className="w-7 h-7 rounded-full border-2 border-white mm-shadow flex-shrink-0"
-                            style={{ backgroundColor: item.colourHex }} />
-                          <div className="flex-1 min-w-0">
-                            <span className="font-[600] capitalize">{item.productSlug.replace(/-/g, " ")}</span>
-                            <span className="mm-muted"> · {item.colourName} · {item.size} · {item.finish} × {item.quantity}</span>
-                          </div>
-                          <div className="font-[700] flex-shrink-0">{kes(item.unitKes * item.quantity)}</div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Footer */}
-                    <div className="px-5 py-3 border-t flex justify-between text-[13px]" style={{ borderColor: "#ebe2d2" }}>
-                      {order.delivery_kes > 0 ? (
-                        <span className="mm-muted">Delivery: {kes(order.delivery_kes)}</span>
-                      ) : (
-                        <span className="mm-muted">Free delivery</span>
-                      )}
-                      <span className="font-[700] text-[15px]">Total: {kes(order.total_kes)}</span>
-                    </div>
-                  </div>
-                );
-              })}
+          {/* ── Pending / Unsuccessful orders ── */}
+          {unsuccessfulOrders.length > 0 && (
+            <div className="mb-4">
+              <SectionHeader
+                icon="⏳"
+                title="Pending / Unsuccessful"
+                subtitle={`${unsuccessfulOrders.length} order${unsuccessfulOrders.length > 1 ? "s" : ""} · payment not yet confirmed or cancelled`}
+                color="#a16207"
+              />
+              <div className="space-y-5">
+                {unsuccessfulOrders.map(order => <OrderCard key={order.id} order={order} />)}
+              </div>
+              {unsuccessfulOrders.some(o => o.status === "pending") && (
+                <div className="mt-4 px-4 py-3 rounded-[14px] text-[13px]" style={{ background: "#fefce8", border: "1px solid #fde68a", color: "#92400e" }}>
+                  <strong>Awaiting payment?</strong> Complete your M-Pesa payment and your order status will update automatically within minutes.
+                </div>
+              )}
             </div>
           )}
 

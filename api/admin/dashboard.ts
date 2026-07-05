@@ -74,16 +74,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ORDER BY created_at DESC
       LIMIT 10
     `,
-    /* 6 — M-Pesa success rate (last 30 days) */
+    /* 6 — M-Pesa success rate (last 30 days) — gracefully handle missing table */
     sql`
       SELECT
         COUNT(*) AS total,
-        SUM(CASE WHEN status = 'SUCCESS' THEN 1 ELSE 0 END) AS success,
-        SUM(CASE WHEN status = 'CANCELLED' THEN 1 ELSE 0 END) AS cancelled,
-        SUM(CASE WHEN status NOT IN ('SUCCESS','CANCELLED','PENDING') THEN 1 ELSE 0 END) AS failed
-      FROM mpesa_payments
+        SUM(CASE WHEN result_code = '0' THEN 1 ELSE 0 END) AS success,
+        SUM(CASE WHEN result_code = '1032' THEN 1 ELSE 0 END) AS cancelled,
+        SUM(CASE WHEN result_code NOT IN ('0','1032') AND result_code IS NOT NULL THEN 1 ELSE 0 END) AS failed
+      FROM mpesa_callbacks
       WHERE created_at >= now() - interval '30 days'
-    `,
+    `.catch(() => [{ total: 0, success: 0, cancelled: 0, failed: 0 }]),
     /* 7 — Revenue by county (top 8) */
     sql`
       SELECT county,
@@ -99,12 +99,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   ]);
 
   return res.status(200).json({
-    revenue:     revRows[0]  ?? {},
-    byStatus:    statusRows,
-    topProducts: topProductRows,
-    slowMovers:  slowRows,
+    revenue:      revRows[0]  ?? {},
+    byStatus:     statusRows,
+    topProducts:  topProductRows,
+    slowMovers:   slowRows,
     recentOrders: recentRows,
-    mpesa:       mpesaRows[0] ?? {},
-    byCounty:    countyRows,
+    mpesa:        mpesaRows[0] ?? { total: 0, success: 0, cancelled: 0, failed: 0 },
+    byCounty:     countyRows,
   });
 }

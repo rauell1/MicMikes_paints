@@ -12,7 +12,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const rows = await sql`
       SELECT id, county, town, rate_kes, updated_at
       FROM delivery_rates
-      ORDER BY county, NULLS LAST, town
+      ORDER BY county ASC, town ASC NULLS LAST
     `;
     return res.status(200).json(rows);
   }

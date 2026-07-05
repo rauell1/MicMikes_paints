@@ -7,8 +7,9 @@ type AdminProduct = { id: string; slug: string; name: string; blurb: string; cat
 type AdminRoom    = { id: string; name: string; photo_url: string; wall_mask: string; sort_order: number };
 type AdminOrder   = { id: string; name: string; email: string; phone: string; county: string; town: string; total_kes: number; status: string; mpesa_ref: string; created_at: string; items: AdminOrderItem[] };
 type AdminOrderItem = { product_slug: string; colour_name: string; colour_hex: string; size: string; finish: string; quantity: number; unit_kes: number };
+type DeliveryRate = { id: string; county: string; town: string | null; rate_kes: number; updated_at: string };
 
-type Tab = "colours" | "products" | "rooms" | "orders";
+type Tab = "colours" | "products" | "rooms" | "orders" | "delivery";
 
 const FAMILIES = ["Neutrals","Warm Earth","Cool Green","Blue","Red & Terracotta","Yellow & Gold"];
 const CATEGORIES = ["Paint","Primer","Supplies"];
@@ -176,6 +177,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     { id:"products", label:"Products", icon:"🪣" },
     { id:"rooms",    label:"Rooms",    icon:"🏠" },
     { id:"orders",   label:"Orders",   icon:"📦" },
+    { id:"delivery", label:"Delivery", icon:"🚚" },
   ];
 
   return (
@@ -207,10 +209,10 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
 
       {/* tab nav */}
       <div className="bg-white border-b" style={{ borderColor:"#ebe2d2" }}>
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex gap-1">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex gap-1 overflow-x-auto">
           {tabs.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
-              className="flex items-center gap-1.5 px-4 py-3 text-[13px] font-[600] border-b-2 transition"
+              className="flex items-center gap-1.5 px-4 py-3 text-[13px] font-[600] border-b-2 transition whitespace-nowrap"
               style={{ borderColor: tab===t.id ? "#B84A32" : "transparent", color: tab===t.id ? "#B84A32" : "#6f6a62" }}>
               <span>{t.icon}</span>{t.label}
             </button>
@@ -224,6 +226,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
         {tab==="products" && <ProductsTab showToast={showToast} />}
         {tab==="rooms"    && <RoomsTab    showToast={showToast} />}
         {tab==="orders"   && <OrdersTab   showToast={showToast} />}
+        {tab==="delivery" && <DeliveryTab showToast={showToast} />}
       </main>
 
       {toast && (
@@ -311,7 +314,6 @@ function ColoursTab({ showToast }: { showToast: (m: string) => void }) {
         <Btn onClick={openAdd}>+ Add colour</Btn>
       </div>
 
-      {/* filters */}
       <div className="flex flex-wrap gap-2 mb-6">
         <input className={inp + " max-w-[220px]"} placeholder="Search name or hex…" value={search} onChange={e=>setSearch(e.target.value)} />
         <select className={sel + " w-auto"} value={fam} onChange={e=>setFam(e.target.value)}>
@@ -331,7 +333,6 @@ function ColoursTab({ showToast }: { showToast: (m: string) => void }) {
         <ColourGrid colours={filtered} onEdit={openEdit} onDelete={id=>setConfirm(id)} />
       )}
 
-      {/* edit/add modal */}
       {(editing||adding) && (
         <Modal title={adding ? "Add colour" : `Edit - ${editing!.name}`} onClose={closeModal}>
           <div className="space-y-4">
@@ -374,7 +375,6 @@ function ColoursTab({ showToast }: { showToast: (m: string) => void }) {
         </Modal>
       )}
 
-      {/* delete confirm */}
       {confirm && (
         <Modal title="Delete colour?" onClose={()=>setConfirm(null)}>
           <p className="text-[13px] mb-5" style={{ color:"#6f6a62" }}>
@@ -458,7 +458,6 @@ function ProductsTab({ showToast }: { showToast: (m:string)=>void }) {
         showToast(`✓ Added ${row.name}`);
       } else if (editing) {
         const row = await api("/api/admin/products", { method:"PUT", body: JSON.stringify({ id:editing.id, ...draft }) });
-        // update variants prices
         await Promise.all(
           editing.variants.map(v =>
             prices[v.id] !== undefined && prices[v.id] !== v.price_kes
@@ -513,7 +512,6 @@ function ProductsTab({ showToast }: { showToast: (m:string)=>void }) {
                     <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background:"#f5ede3", color:"#B84A32" }}>{p.category}</span>
                   </div>
                   <p className="text-[12px] mt-1 line-clamp-2" style={{ color:"#6f6a62" }}>{p.blurb}</p>
-                  {/* inline prices */}
                   <div className="flex gap-3 mt-2">
                     {p.variants.map(v => (
                       <span key={v.id} className="text-[11px] font-[600]" style={{ color:"#2B2B2E" }}>
@@ -562,8 +560,6 @@ function ProductsTab({ showToast }: { showToast: (m:string)=>void }) {
             {draft.image_url && (
               <img src={draft.image_url} alt="" className="w-full h-40 object-cover rounded-[12px]" onError={e=>(e.currentTarget.style.display="none")} />
             )}
-
-            {/* pricing - only shown when editing */}
             {editing && editing.variants.length > 0 && (
               <div>
                 <div className="text-[12px] font-[700] uppercase tracking-wide mb-3" style={{ color:"#6f6a62" }}>Pricing (KES)</div>
@@ -578,7 +574,6 @@ function ProductsTab({ showToast }: { showToast: (m:string)=>void }) {
                 </div>
               </div>
             )}
-
             <div className="flex gap-2 pt-2">
               <Btn variant="outline" onClick={closeModal}>Cancel</Btn>
               <Btn onClick={save} disabled={saving||!draft.name}>
@@ -671,7 +666,6 @@ function RoomsTab({ showToast }: { showToast: (m:string)=>void }) {
           <div key={r.id} className="bg-white rounded-[16px] overflow-hidden" style={{ border:"1px solid #ebe2d2" }}>
             <div className="relative">
               <img src={r.photo_url} alt={r.name} className="w-full h-44 object-cover bg-[#f5f0e8]" />
-              {/* overlay wall mask preview */}
               {r.wall_mask && (
                 <svg className="absolute inset-0 w-full h-full" style={{ pointerEvents:"none" }} preserveAspectRatio="none">
                   <polygon points={r.wall_mask.split(" ").map(pt => {
@@ -724,7 +718,7 @@ function RoomsTab({ showToast }: { showToast: (m:string)=>void }) {
             )}
             <Field
               label="Wall mask polygon"
-              hint='Space-separated x,y pairs as 0-1 fractions of image size. Example: "0,0.08 1,0.08 1,0.65 0,0.65" draws the top 65% as the wall region. The red overlay above shows the current mask.'
+              hint='Space-separated x,y pairs as 0-1 fractions. Example: "0,0.08 1,0.08 1,0.65 0,0.65"'
             >
               <textarea className={inp + " font-mono text-[12px] resize-none"} rows={3}
                 value={draft.wall_mask}
@@ -732,7 +726,7 @@ function RoomsTab({ showToast }: { showToast: (m:string)=>void }) {
                 placeholder="0,0.08 1,0.08 1,0.65 0,0.65" />
             </Field>
             <div className="p-3 rounded-[10px] text-[12px]" style={{ background:"#f5f0e8", color:"#6f6a62" }}>
-              <strong style={{ color:"#2B2B2E" }}>Tip:</strong> x=0 is left edge, x=1 is right edge. y=0 is top, y=1 is bottom. Start with a simple rectangle: top-left → top-right → bottom-right → bottom-left.
+              <strong style={{ color:"#2B2B2E" }}>Tip:</strong> x=0 is left edge, x=1 is right. y=0 is top, y=1 is bottom.
             </div>
             <div className="flex gap-2 pt-2">
               <Btn variant="outline" onClick={closeModal}>Cancel</Btn>
@@ -826,21 +820,16 @@ function OrdersTab({ showToast }: { showToast: (m:string)=>void }) {
                   <td className="px-4 py-3" style={{ color:"#6f6a62" }}>{o.town}, {o.county}</td>
                   <td className="px-4 py-3 font-[700]" style={{ color:"#B84A32" }}>{kes(o.total_kes)}</td>
                   <td className="px-4 py-3">
-                    <select
-                      value={o.status}
-                      disabled={updatingId===o.id}
+                    <select value={o.status} disabled={updatingId===o.id}
                       onChange={e=>updateStatus(o.id, e.target.value)}
                       className="text-[11px] font-[600] rounded-full px-2 py-1 border-0 cursor-pointer focus:outline-none"
-                      style={{ background:"transparent" }}
-                    >
+                      style={{ background:"transparent" }}>
                       {STATUSES.map(s=><option key={s}>{s}</option>)}
                     </select>
                     <StatusBadge s={o.status} />
                   </td>
                   <td className="px-4 py-3">
-                    <button onClick={()=>setDetail(o)} className="text-[11px] font-[600] hover:underline" style={{ color:"#B84A32" }}>
-                      Details
-                    </button>
+                    <button onClick={()=>setDetail(o)} className="text-[11px] font-[600] hover:underline" style={{ color:"#B84A32" }}>Details</button>
                   </td>
                 </tr>
               ))}
@@ -899,6 +888,191 @@ function OrdersTab({ showToast }: { showToast: (m:string)=>void }) {
                 ))}
               </div>
             </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════
+   DELIVERY RATES TAB
+════════════════════════════════════════════════ */
+const blankRate = (): Omit<DeliveryRate, "id" | "updated_at"> => ({ county: "", town: null, rate_kes: 0 });
+
+function DeliveryTab({ showToast }: { showToast: (m: string) => void }) {
+  const [rates,   setRates]   = useState<DeliveryRate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<DeliveryRate | null>(null);
+  const [adding,  setAdding]  = useState(false);
+  const [draft,   setDraft]   = useState<Omit<DeliveryRate, "id" | "updated_at">>(blankRate());
+  const [saving,  setSaving]  = useState(false);
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const [search,  setSearch]  = useState("");
+
+  const load = useCallback(async () => {
+    try { setRates(await api("/api/admin/delivery-rates")); }
+    catch (e) { showToast(`Error: ${e}`); }
+    finally { setLoading(false); }
+  }, [showToast]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const openEdit = (r: DeliveryRate) => {
+    setEditing(r);
+    setDraft({ county: r.county, town: r.town, rate_kes: r.rate_kes });
+  };
+  const openAdd    = () => { setAdding(true); setDraft(blankRate()); };
+  const closeModal = () => { setEditing(null); setAdding(false); };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const body = { ...draft, town: draft.town?.trim() || null };
+      if (adding) {
+        const row = await api("/api/admin/delivery-rates", { method: "POST", body: JSON.stringify(body) });
+        setRates(prev => [...prev, row]);
+        showToast(`✓ Added ${row.county}${row.town ? ` / ${row.town}` : ""}`);
+      } else if (editing) {
+        const row = await api("/api/admin/delivery-rates", { method: "PUT", body: JSON.stringify({ id: editing.id, ...body }) });
+        setRates(prev => prev.map(r => r.id === row.id ? row : r));
+        showToast(`✓ Saved ${row.county}${row.town ? ` / ${row.town}` : ""}`);
+      }
+      closeModal();
+    } catch (e) { showToast(`Error: ${e}`); }
+    finally { setSaving(false); }
+  };
+
+  const del = async (id: string) => {
+    try {
+      await api("/api/admin/delivery-rates", { method: "DELETE", body: JSON.stringify({ id }) });
+      setRates(prev => prev.filter(r => r.id !== id));
+      showToast("✓ Rate deleted");
+    } catch (e) { showToast(`Error: ${e}`); }
+    setConfirm(null);
+  };
+
+  // Group by county for display
+  const filtered = rates.filter(r =>
+    !search ||
+    r.county.toLowerCase().includes(search.toLowerCase()) ||
+    (r.town ?? "").toLowerCase().includes(search.toLowerCase())
+  );
+
+  const counties = [...new Set(filtered.map(r => r.county))].sort();
+
+  if (loading) return <Spinner />;
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div>
+          <h2 style={{ fontFamily: '"Playfair Display",Georgia,serif', fontSize: 24, fontWeight: 600 }}>Delivery Rates</h2>
+          <p className="text-[13px] mt-0.5" style={{ color: "#6f6a62" }}>
+            {rates.length} rate{rates.length !== 1 ? "s" : ""} · county-level defaults + optional town overrides
+          </p>
+        </div>
+        <Btn onClick={openAdd}>+ Add rate</Btn>
+      </div>
+
+      <div className="mb-5">
+        <input className={inp + " max-w-[260px]"} placeholder="Search county or town…" value={search} onChange={e => setSearch(e.target.value)} />
+      </div>
+
+      {rates.length === 0 ? (
+        <div className="text-center py-20" style={{ color: "#9b9589" }}>
+          <div className="text-5xl mb-4">🚚</div>
+          <div className="font-[600] text-[15px]" style={{ color: "#2B2B2E" }}>No rates configured</div>
+          <p className="text-[13px] mt-1 mb-4">Add a county to set delivery pricing. Run the migration SQL first if you haven't already.</p>
+          <Btn onClick={openAdd}>+ Add first rate</Btn>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {counties.map(county => {
+            const rows = filtered.filter(r => r.county === county).sort((a, b) => (a.town ?? "") < (b.town ?? "") ? -1 : 1);
+            return (
+              <div key={county} className="bg-white rounded-[16px] overflow-hidden" style={{ border: "1px solid #ebe2d2" }}>
+                <div className="px-5 py-3 border-b flex items-center justify-between" style={{ borderColor: "#ebe2d2", background: "#faf7f2" }}>
+                  <span className="font-[700] text-[14px]">{county}</span>
+                  <Btn size="sm" variant="outline" onClick={() => { setAdding(true); setDraft({ county, town: "", rate_kes: 0 }); }}>+ town</Btn>
+                </div>
+                <table className="w-full text-[13px]">
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid #f0ebe2", background: "#fdf9f4" }}>
+                      <th className="text-left px-5 py-2 text-[11px] font-[700] uppercase tracking-wide" style={{ color: "#9b9589" }}>Town / Scope</th>
+                      <th className="text-left px-5 py-2 text-[11px] font-[700] uppercase tracking-wide" style={{ color: "#9b9589" }}>Rate (KES)</th>
+                      <th className="text-left px-5 py-2 text-[11px] font-[700] uppercase tracking-wide" style={{ color: "#9b9589" }}>Updated</th>
+                      <th className="px-5 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r, i) => (
+                      <tr key={r.id} style={{ borderBottom: i < rows.length - 1 ? "1px solid #f5f0e8" : undefined }}>
+                        <td className="px-5 py-3">
+                          {r.town
+                            ? <span className="font-[500]">{r.town}</span>
+                            : <span className="text-[11px] px-2 py-0.5 rounded-full font-[600]" style={{ background: "#f5ede3", color: "#B84A32" }}>County default</span>
+                          }
+                        </td>
+                        <td className="px-5 py-3 font-[700]" style={{ color: r.rate_kes === 0 ? "#15803d" : "#2B2B2E" }}>
+                          {r.rate_kes === 0 ? "Free" : kes(r.rate_kes)}
+                        </td>
+                        <td className="px-5 py-3 text-[11px]" style={{ color: "#9b9589" }}>
+                          {new Date(r.updated_at).toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" })}
+                        </td>
+                        <td className="px-5 py-3">
+                          <div className="flex gap-1">
+                            <Btn size="sm" variant="outline" onClick={() => openEdit(r)}>Edit</Btn>
+                            <Btn size="sm" variant="danger" onClick={() => setConfirm(r.id)}>✕</Btn>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {(editing || adding) && (
+        <Modal title={adding ? "Add delivery rate" : `Edit rate — ${editing!.county}${editing!.town ? ` / ${editing!.town}` : " (default)"}`} onClose={closeModal}>
+          <div className="space-y-4">
+            <div className="p-3 rounded-[10px] text-[12px]" style={{ background: "#f5f0e8", color: "#6f6a62" }}>
+              Leave <strong style={{ color: "#2B2B2E" }}>Town</strong> blank to set a county-level default.
+              Town-specific rates override the county default when a customer enters that town at checkout.
+            </div>
+            <Field label="County *">
+              <input className={inp} value={draft.county} onChange={e => setDraft(d => ({ ...d, county: e.target.value }))} placeholder="e.g. Nairobi" />
+            </Field>
+            <Field label="Town (optional)" hint="Leave blank for county-level default">
+              <input className={inp} value={draft.town ?? ""} onChange={e => setDraft(d => ({ ...d, town: e.target.value || null }))} placeholder="e.g. Westlands" />
+            </Field>
+            <Field label="Delivery rate (KES)" hint="Set 0 for free delivery">
+              <input type="number" className={inp} value={draft.rate_kes}
+                onChange={e => setDraft(d => ({ ...d, rate_kes: parseInt(e.target.value) || 0 }))}
+                min={0} step={50} />
+            </Field>
+            {draft.rate_kes === 0 && (
+              <div className="text-[12px] px-3 py-2 rounded-[8px] font-[600]" style={{ background: "#f0fdf4", color: "#15803d" }}>✓ Free delivery for this area</div>
+            )}
+            <div className="flex gap-2 pt-2">
+              <Btn variant="outline" onClick={closeModal}>Cancel</Btn>
+              <Btn onClick={save} disabled={saving || !draft.county}>
+                {saving ? "Saving…" : adding ? "Add rate" : "Save changes"}
+              </Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {confirm && (
+        <Modal title="Delete rate?" onClose={() => setConfirm(null)}>
+          <p className="text-[13px] mb-5" style={{ color: "#6f6a62" }}>This delivery rate will be removed. Orders in this area will fall back to free delivery (KES 0).</p>
+          <div className="flex gap-2">
+            <Btn variant="outline" onClick={() => setConfirm(null)}>Cancel</Btn>
+            <Btn variant="danger" onClick={() => del(confirm!)}>Delete</Btn>
           </div>
         </Modal>
       )}

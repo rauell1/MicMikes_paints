@@ -51,6 +51,15 @@ export const rooms = pgTable("rooms", {
   sortOrder: integer("sort_order").notNull().default(0),
 });
 
+/** Delivery rates keyed by county + optional town. */
+export const deliveryRates = pgTable("delivery_rates", {
+  id:        uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  county:    text("county").notNull(),
+  town:      text("town"),          // NULL = county-level default
+  rateKes:   integer("rate_kes").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(now()),
+}, t => [unique().on(t.county, t.town)]);
+
 export const orders = pgTable("orders", {
   id:             uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   userId:         uuid("user_id").references(() => users.id),
@@ -118,5 +127,3 @@ export const savedColours = pgTable("saved_colours", {
   colourId: uuid("colour_id").notNull().references(() => colours.id, { onDelete: "cascade" }),
   savedAt:  timestamp("saved_at", { withTimezone: true }).notNull().default(now()),
 }, t => [unique().on(t.userId, t.colourId)]);
-
-

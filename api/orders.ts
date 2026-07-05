@@ -8,8 +8,7 @@ import {
 } from "../src/lib/validation.js";
 import { sanitize, sanitizeEmail } from "../src/lib/sanitize.js";
 
-const FREE_DELIVERY_MIN = 15000;
-const DELIVERY_FEE = 350;
+const DELIVERY_FEE = 0; // Free delivery on all orders
 
 const ALLOWED_ORIGINS = [
   "https://mic-mikes-paints.vercel.app",
@@ -126,7 +125,7 @@ async function handleOrder(req: VercelRequest, res: VercelResponse) {
   }
 
   const subtotalKes = verified.reduce((s, i) => s + i.unitKes * i.quantity, 0);
-  const deliveryKes = subtotalKes >= FREE_DELIVERY_MIN ? 0 : DELIVERY_FEE;
+  const deliveryKes = DELIVERY_FEE; // Free delivery on all orders
   const totalKes    = subtotalKes + deliveryKes;
 
   const [order] = await sql`

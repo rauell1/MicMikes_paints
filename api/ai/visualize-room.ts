@@ -9,17 +9,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const { imageDataUrl, colorName, hex, roomType } = req.body || {};
+
   if (!imageDataUrl || !hex) {
     return res.status(400).json({ error: 'imageDataUrl and hex are required' });
   }
 
-  const prompt = `Edit this ${roomType || 'room'} photo by repainting the main wall surfaces with ${colorName || 'the selected paint color'} (${hex}). Preserve all furniture, structure, perspective, shadows, windows, floors, ceiling, and decor exactly. Keep the result photorealistic and suitable for an interior paint preview.`;
+  if (!imageDataUrl.startsWith('data:image/')) {
+    return res.status(400).json({ error: 'Invalid image format' });
+  }
+
+  const prompt = `Repaint the main wall surfaces in this ${roomType || 'room'} with the paint color "${colorName || 'selected color'}" (hex ${hex}). Preserve all furniture, fixtures, floors, ceiling, windows, doors, and room structure exactly. Make the result photorealistic and natural-looking, suitable for an interior paint preview.`;
 
   try {
     const result = await visualizeRoomEdit(imageDataUrl, prompt);
     return res.status(200).json({ ok: true, result });
-  } catch (err: any) {
-    console.error('[visualize-room]', err);
-    return res.status(500).json({ error: err.message || 'Visualization failed' });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || 'Visualization failed. Please try again.' });
   }
 }

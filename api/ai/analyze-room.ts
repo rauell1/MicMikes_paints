@@ -2,25 +2,23 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { analyzeRoomImage, generateRecommendationText, moderateImage } from '../lib/ai';
 
 function getCatalogContext() {
-  return `
-Mic Mikes Paints sells the Keekorok range — decorative and protective paints for Kenyan homes.
-Products include: Premium Emulsion (interior walls/ceilings), Satin Finish (feature walls/hallways), Primer & Sealer (new plaster/timber).
-Pricing: 1L from KES 700, 4L from KES 2200, 20L from KES 9000.
-Recommend finish type, room suitability, and prep advice.
-`;
+  return `MicMikes Paints Kenya sells Keekorok premium decorative paints: emulsion, eggshell, satin, semi-gloss.
+Available colours include Neutrals, Warm Earth, Cool Green, Blue, Red & Terracotta, Yellow & Gold families.
+Pricing: 1L from KES 850, 4L from KES 2800, 20L from KES 11500. Free delivery on all orders.
+Recommend specific finish types (matte for low-traffic, satin/semi-gloss for kitchens/bathrooms) and prep advice.`;
 }
 
-function extractText(payload: any): string {
-  return payload?.choices?.[0]?.message?.content || '';
-}
-
-function safeJsonParse(text: string): any | null {
+function safeJsonParse(text: string) {
   try {
     const match = text.match(/\{[\s\S]*\}/);
-    return match ? JSON.parse(match[0]) : JSON.parse(text);
+    return match ? JSON.parse(match[0]) : null;
   } catch {
     return null;
   }
+}
+
+function extractText(payload: any) {
+  return payload?.choices?.[0]?.message?.content || '';
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -35,26 +33,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'imageDataUrl is required' });
   }
 
+  if (!imageDataUrl.startsWith('data:image/')) {
+    return res.status(400).json({ error: 'Invalid image format' });
+  }
+
   try {
-    // Step 1: Safety check
-    const modRaw = await moderateImage(imageDataUrl);
-    const modJson = safeJsonParse(extractText(modRaw));
-    if (modJson && modJson.allowed === false) {
-      return res.status(400).json({ error: modJson.reason || 'Image not suitable for analysis' });
+    // Safety check
+    try {
+      const moderation = await moderateImage(imageDataUrl);
+      const modText = extractText(moderation);
+      const modJson = safeJsonParse(modText);
+      if (modJson && modJson.allowed === false) {
+        return res.status(400).json({ error: modJson.reason || 'Image not suitable for analysis' });
+      }
+    } catch {
+      // Safety check failure is non-blocking — proceed
     }
 
-    // Step 2: Room analysis
+    // Room analysis
     const analysisRaw = await analyzeRoomImage(imageDataUrl);
-    const analysis = safeJsonParse(extractText(analysisRaw));
-    if (!analysis) return res.status(502).json({ error: 'Failed to parse room analysis from AI' });
+    const analysisText = extractText(analysisRaw);
+    const analysis = safeJsonParse(analysisText);
 
-    // Step 3: Product recommendation text
-    const recRaw = await generateRecommendationText(analysis, getCatalogContext());
-    const recommendation = safeJsonParse(extractText(recRaw));
+    if (!analysis) {
+      return res.status(502).json({ error: 'Could not parse room analysis. Please try a clearer photo.' });
+    }
+
+    // Product recommendation
+    let recommendation = null;
+    try {
+      const recRaw = await generateRecommendationText(analysis, getCatalogContext());
+      const recText = extractText(recRaw);
+      recommendation = safeJsonParse(recText);
+    } catch {
+      // Recommendation is best-effort
+    }
 
     return res.status(200).json({ ok: true, analysis, recommendation });
-  } catch (err: any) {
-    console.error('[analyze-room]', err);
-    return res.status(500).json({ error: err.message || 'AI analysis failed' });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || 'AI analysis failed. Please try again.' });
   }
 }

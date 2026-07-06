@@ -50,7 +50,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               {
                 type: "image_url",
                 image_url: {
-                  url: `data:${mimeType};base64:${imageBase64}`,
+                  url: `data:${mimeType};base64,${imageBase64}`,
                 },
               },
               {

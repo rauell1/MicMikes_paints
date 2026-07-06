@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import TrackOrder from "./TrackOrder";
+import RoomPhotoUpload from "./RoomPhotoUpload";
 
 function getSessionId(): string {
   const key = "mm-session";
@@ -1047,17 +1048,27 @@ function ChatWidget() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 15;
+    setShowScrollBtn(!isAtBottom);
+  };
 
   useEffect(() => {
     if (open) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, open, busy]);
 
-  const send = async () => {
-    const text = input.trim();
+  const send = async (customText?: string) => {
+    const text = (customText !== undefined ? customText : input).trim();
     if (!text || busy) return;
     const next = [...messages, { role: "user" as const, content: text }];
     setMessages(next);
-    setInput("");
+    if (customText === undefined) {
+      setInput("");
+    }
     setBusy(true);
     try {
       const res = await fetch("/api/chat", {
@@ -1115,51 +1126,117 @@ function ChatWidget() {
             </div>
           </div>
 
-          <div ref={scrollRef} className="flex-1 overflow-y-auto px-3.5 py-3 space-y-2.5">
-            {messages.map((m, i) => (
-              <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div
-                  className="px-3 py-2 rounded-[14px] text-[13px] leading-relaxed"
-                  style={m.role === "user"
-                    ? { background: "#B84A32", color: "#fff", borderBottomRightRadius: 4, maxWidth: "82%" }
-                    : { background: "#fff", color: "#2B2B2E", border: "1px solid #ece1cf", borderBottomLeftRadius: 4, maxWidth: "82%" }}
-                >
-                  {m.role === 'assistant' ? renderMarkdown(m.content) : m.content}
+          <div className="flex-1 relative flex flex-col min-h-0">
+            <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-3.5 py-3 space-y-2.5">
+              {messages.map((m, i) => (
+                <div key={i} className="flex flex-col">
+                  <div className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                    <div
+                      className="px-3 py-2 rounded-[14px] text-[13px] leading-relaxed"
+                      style={m.role === "user"
+                        ? { background: "#B84A32", color: "#fff", borderBottomRightRadius: 4, maxWidth: "82%" }
+                        : { background: "#fff", color: "#2B2B2E", border: "1px solid #ece1cf", borderBottomLeftRadius: 4, maxWidth: "82%" }}
+                    >
+                      {m.role === 'assistant' ? renderMarkdown(m.content) : m.content}
+                    </div>
+                  </div>
+                  {i === 0 && messages.length <= 1 && (
+                    <div className="flex flex-wrap gap-1 mt-1 justify-start">
+                      {[
+                        "What colours suit a bright living room?",
+                        "How much does 4L Satin cost?",
+                        "Do you deliver to Mombasa?"
+                      ].map((text, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => send(text)}
+                          disabled={busy}
+                          style={{
+                            borderRadius: "9999px",
+                            border: "1px solid #e2d3b7",
+                            backgroundColor: "#ffffff",
+                            color: "#B84A32",
+                            fontSize: "12px",
+                            padding: "6px 12px",
+                            margin: "4px",
+                            cursor: "pointer",
+                          }}
+                          className="hover:opacity-80 active:scale-95 transition-all text-left"
+                        >
+                          {text}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
-            {busy && (
-              <div className="flex justify-start">
-                <div className="px-3 py-2.5 rounded-[14px] bg-white border" style={{ borderColor: "#ece1cf" }}>
-                  <span className="inline-flex gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#B84A32] animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#B84A32] animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#B84A32] animate-bounce" style={{ animationDelay: "300ms" }} />
-                  </span>
+              ))}
+              {busy && (
+                <div className="flex justify-start">
+                  <div className="px-3 py-2.5 rounded-[14px] bg-white border" style={{ borderColor: "#ece1cf" }}>
+                    <span className="inline-flex gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#B84A32] animate-bounce" style={{ animationDelay: "0ms" }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#B84A32] animate-bounce" style={{ animationDelay: "150ms" }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#B84A32] animate-bounce" style={{ animationDelay: "300ms" }} />
+                    </span>
+                  </div>
                 </div>
-              </div>
+              )}
+            </div>
+            {showScrollBtn && (
+              <button
+                onClick={() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })}
+                aria-label="Scroll to bottom"
+                className="absolute bottom-3 right-3 flex items-center justify-center rounded-full shadow-md transition-all hover:scale-105 active:scale-95"
+                style={{
+                  width: 32,
+                  height: 32,
+                  background: "#2B2B2E",
+                  color: "#F8F4EF",
+                  opacity: 0.9,
+                  border: "none",
+                  cursor: "pointer",
+                  zIndex: 10,
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+              </button>
             )}
           </div>
 
-          <div className="p-2.5 flex items-center gap-2" style={{ borderTop: "1px solid #e7d9c3", background: "#fffdf8" }}>
-            <input
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") send(); }}
-              placeholder="Ask about colours, prices…"
-              className="flex-1 px-3 py-2 rounded-full text-[13px] bg-white focus:outline-none"
-              style={{ border: "1px solid #e2d3b7" }}
-              disabled={busy}
-            />
-            <button
-              onClick={send}
-              disabled={busy || !input.trim()}
-              aria-label="Send message"
-              className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 disabled:opacity-40"
-              style={{ background: "#B84A32", color: "#fff" }}
-            >
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-            </button>
+          <div className="p-2.5 flex flex-col" style={{ borderTop: "1px solid #e7d9c3", background: "#fffdf8" }}>
+            <div style={{ padding: "0 10px 6px" }}>
+              <RoomPhotoUpload onResult={(result) => {
+                const msg = result.recommendation
+                  ?? `Suggested shades: ${result.suggestedShades?.join(", ") ?? "see our catalogue"}`;
+                setMessages(m => [...m, { role: "assistant", content: `🏠 Room analysis:\n${msg}` }]);
+              }} />
+            </div>
+            <div className="flex items-center gap-2 w-full">
+              <input
+                value={input}
+                onChange={e => setInput(e.target.value.slice(0, 300))}
+                maxLength={300}
+                onKeyDown={e => { if (e.key === "Enter") send(); }}
+                placeholder="Ask about colours, prices…"
+                className="flex-1 px-3 py-2 rounded-full text-[13px] bg-white focus:outline-none"
+                style={{ border: "1px solid #e2d3b7" }}
+                disabled={busy}
+              />
+              <button
+                onClick={() => send()}
+                disabled={busy || !input.trim()}
+                aria-label="Send message"
+                className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 disabled:opacity-40"
+                style={{ background: "#B84A32", color: "#fff" }}
+              >
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              </button>
+            </div>
+            {input.length > 0 && (
+              <div className="text-right text-[11px] px-3 select-none mm-muted" style={{ color: "#9b8a7a", marginTop: "4px" }}>
+                {input.length}/300
+              </div>
+            )}
           </div>
         </div>
       )}

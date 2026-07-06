@@ -2,6 +2,9 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": null,
+  "functions": {
+    "api/analyse-room.ts": { "maxDuration": 30 }
+  },
   "rewrites": [
     { "source": "/api/admin/login",          "destination": "/api/admin?_r=login" },
     { "source": "/api/admin/dashboard",      "destination": "/api/admin?_r=dashboard" },

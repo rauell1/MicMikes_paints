@@ -38,6 +38,46 @@ implementation_plan.md
 walkthrough.md
 scratch/
 
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Compiler outputs
+dist/
+dist-ssr/
+*.tsbuildinfo
+
+# IDEs and editors
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Agent configs / Temporary files
+.gemini/
+.agents/
+.agent/
+task.md
+implementation_plan.md
+walkthrough.md
+scratch/
+
 .vercel
 .env
 .env.local
@@ -47,3 +87,8 @@ ANALYSIS.md
 MicMikes_paints/
 .claude/
 api/masks/backups/
+
+# Next.js and backup folders
+.next/
+node_modules_backup/
+vite-backup/

@@ -1,0 +1,173 @@
+@import "tailwindcss";
+
+@theme {
+  /* Brand Typography Variables mapped from Next.js google fonts */
+  --font-display: var(--font-display), Georgia, serif;
+  --font-tag: var(--font-tag), Georgia, serif;
+  --font-sans: var(--font-sans), system-ui, sans-serif;
+  --font-mono2: var(--font-mono2), monospace;
+
+  /* Brand Colors */
+  --color-masai: #B84A32;
+  --color-ivory: #F8F4EF;
+  --color-graphite: #2b2b2e;
+}
+
+/* Base custom resets */
+html {
+  scroll-behavior: smooth;
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: rgba(233, 162, 59, 0.2);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d9cfbe;
+  border-radius: 999px;
+}
+
+/* Custom layout utility classes ported from original Vite site */
+.mm-muted {
+  color: #6f6a62;
+}
+
+.mm-card {
+  background: #fff;
+  border: 1px solid #ebe2d2;
+}
+
+.mm-shadow {
+  box-shadow: 0 10px 38px rgba(43,43,46,.075);
+}
+
+/* Interactive elements styling */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  border-radius: 999px;
+  font-weight: 600;
+  transition: transform 0.12s ease, opacity 0.15s ease, background 0.15s ease;
+  cursor: pointer;
+}
+
+.btn:active {
+  transform: translateY(1px) scale(0.992);
+}
+
+.btn-primary {
+  background: #B84A32;
+  color: #fff;
+}
+
+.btn-primary:hover {
+  opacity: 0.94;
+}
+
+.btn-dark {
+  background: #2B2B2E;
+  color: #F8F4EF;
+}
+
+.btn-ghost {
+  background: #fff;
+  border: 1px solid #e4d7c2;
+  color: #2B2B2E;
+}
+
+.chip {
+  border: 1px solid #e2d3b7;
+  background: #fff;
+  border-radius: 999px;
+  padding: 0.42rem 0.78rem;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chip.active {
+  background: #2B2B2E;
+  color: #F8F4EF;
+  border-color: #2B2B2E;
+}
+
+.input {
+  width: 100%;
+  padding: 0.76rem 0.95rem;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid #e1d3bd;
+  font-size: 14px;
+  outline: none;
+}
+
+.input:focus {
+  border-color: #4FB9B0;
+  box-shadow: 0 0 0 3px rgba(79, 185, 176, 0.15);
+}
+
+.select {
+  width: 100%;
+  padding: 0.72rem 0.9rem;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid #e1d3bd;
+  font-size: 14px;
+}
+
+.swatch {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 3px solid #fff;
+  box-shadow: 0 3px 13px rgba(0, 0, 0, 0.11);
+  transition: transform 0.12s ease;
+  cursor: pointer;
+}
+
+.swatch:hover {
+  transform: scale(1.055);
+}
+
+.swatch.active {
+  box-shadow: 0 0 0 2.5px #fff, 0 0 0 4.5px #2B2B2E;
+  transform: scale(1.05);
+}
+
+@keyframes sheet-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.sheet-panel {
+  animation: sheet-in 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.fade {
+  animation: fade-in 0.18s ease-out;
+}
+
+@keyframes pgIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 1023px) {
+  .pg-enter {
+    display: block;
+    animation: pgIn 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}

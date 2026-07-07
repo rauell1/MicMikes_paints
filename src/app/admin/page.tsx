@@ -1070,6 +1070,7 @@ type AdminPayment = {
   status: string;
   mpesa_receipt: string | null;
   failure_reason: string | null;
+  raw_response: any;
   created_at: string;
 };
 
@@ -1077,6 +1078,7 @@ function PaymentsTab({ showToast }: { showToast: (m:string) => void }) {
   const [payments, setPayments] = useState<AdminPayment[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch]   = useState("");
+  const [selectedPayment, setSelectedPayment] = useState<AdminPayment | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -1154,6 +1156,7 @@ function PaymentsTab({ showToast }: { showToast: (m:string) => void }) {
               <th className="px-6 py-3">Receipt / Ref</th>
               <th className="px-6 py-3">Amount</th>
               <th className="px-6 py-3">Status</th>
+              <th className="px-6 py-3 text-right">Details</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#ebe2d2]">
@@ -1178,11 +1181,14 @@ function PaymentsTab({ showToast }: { showToast: (m:string) => void }) {
                 </td>
                 <td className="px-6 py-3 font-[700]">{kes(p.amount_kes)}</td>
                 <td className="px-6 py-3">{statusBadge(p.status)}</td>
+                <td className="px-6 py-3 text-right">
+                  <Btn variant="ghost" size="sm" onClick={() => setSelectedPayment(p)}>View Details</Btn>
+                </td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-6 py-8 text-center text-[#9b9589]">
+                <td colSpan={8} className="px-6 py-8 text-center text-[#9b9589]">
                   No payment attempts found.
                 </td>
               </tr>
@@ -1190,6 +1196,40 @@ function PaymentsTab({ showToast }: { showToast: (m:string) => void }) {
           </tbody>
         </table>
       </div>
+
+      {selectedPayment && (
+        <Modal title={`Payment Details — ${selectedPayment.order_number}`} onClose={() => setSelectedPayment(null)} wide>
+          <div className="grid md:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <h4 className="font-bold text-[14px]">Transaction Details</h4>
+              <div className="bg-[#f8f4ef] p-4 rounded-[12px] space-y-1.5 text-[13px]">
+                <div className="flex justify-between"><span className="text-[#6f6a62]">Date/Time:</span><span>{new Date(selectedPayment.created_at).toLocaleString("en-KE")}</span></div>
+                <div className="flex justify-between"><span className="text-[#6f6a62]">Order Number:</span><span className="font-[600] text-[#B84A32]">{selectedPayment.order_number}</span></div>
+                <div className="flex justify-between"><span className="text-[#6f6a62]">Customer Name:</span><span>{selectedPayment.name || "N/A"}</span></div>
+                <div className="flex justify-between"><span className="text-[#6f6a62]">M-Pesa Phone:</span><span className="font-mono">{selectedPayment.phone}</span></div>
+                <div className="flex justify-between"><span className="text-[#6f6a62]">Amount:</span><span className="font-[700]">{kes(selectedPayment.amount_kes)}</span></div>
+                <div className="flex justify-between"><span className="text-[#6f6a62]">Status:</span><span>{statusBadge(selectedPayment.status)}</span></div>
+                {selectedPayment.mpesa_receipt && (
+                  <div className="flex justify-between"><span className="text-[#6f6a62]">M-Pesa Receipt:</span><span className="font-mono font-[700] text-[#16a34a]">{selectedPayment.mpesa_receipt}</span></div>
+                )}
+                {selectedPayment.failure_reason && (
+                  <div className="flex justify-between"><span className="text-[#6f6a62]">Failure Reason:</span><span className="text-red-600 font-[600]">{selectedPayment.failure_reason}</span></div>
+                )}
+              </div>
+            </div>
+            <div className="space-y-4">
+              <h4 className="font-bold text-[14px]">Safaricom Raw Response / Payload</h4>
+              <div className="bg-[#f8f4ef] border border-[#ebe2d2] p-4 rounded-[12px] overflow-auto max-h-60 font-mono text-[11px] text-gray-800 whitespace-pre-wrap break-all">
+                {selectedPayment.raw_response ? (
+                  <pre>{JSON.stringify(selectedPayment.raw_response, null, 2)}</pre>
+                ) : (
+                  <span className="text-[#9b9589] italic">No raw payload logged for this attempt.</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

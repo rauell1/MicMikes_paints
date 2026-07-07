@@ -381,6 +381,7 @@ export async function GET(req: NextRequest) {
           pa.status,
           pa.provider_reference AS mpesa_receipt,
           pa.failure_reason,
+          pa.raw_response,
           pa.created_at
         FROM payment.payment_attempts pa
         JOIN commerce.orders o ON o.id = pa.order_id

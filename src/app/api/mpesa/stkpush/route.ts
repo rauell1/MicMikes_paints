@@ -54,10 +54,10 @@ export async function GET(req: NextRequest) {
 
   try {
     const payments = (await db.execute(sql`
-      SELECT pa.status, pa.provider_reference AS mpesa_receipt, 
-             pa.payload->>'errorMessage' AS failure_reason,
-             pa.payload->>'resultCode' AS result_code,
-             pa.amount_minor / 100 AS amount_kes, 
+      SELECT pa.status, pa.provider_reference AS mpesa_receipt,
+             pa.failure_reason AS failure_reason,
+             pa.raw_response->>'resultCode' AS result_code,
+             pa.amount_minor / 100 AS amount_kes,
              pa.updated_at AS completed_at,
              o.id AS order_id, 
              addr.recipient_name AS customer_name, 
@@ -179,10 +179,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: stkData.ResponseDescription ?? "STK Push rejected" }, { status: 502 });
     }
 
-    // Insert payment attempt record
+    // Insert payment attempt record. Note: there is no `provider` column on
+    // payment.payment_attempts; the ON CONFLICT relies on the unique index
+    // payment_attempts_provider_request_id_key (migration 006).
     await db.execute(sql`
-      INSERT INTO payment.payment_attempts (id, order_id, amount_minor, status, provider, provider_request_id, provider_reference)
-      VALUES (gen_random_uuid(), ${orderId}, ${amountMinor}, 'initiated', 'mpesa', ${stkData.CheckoutRequestID}, ${stkData.MerchantRequestID})
+      INSERT INTO payment.payment_attempts
+        (id, order_id, payment_method_id, amount_minor, currency_code, phone_e164, status, provider_request_id, provider_reference)
+      VALUES
+        (gen_random_uuid(), ${orderId},
+         (SELECT id FROM payment.payment_methods WHERE code = 'MPESA_STK' LIMIT 1),
+         ${amountMinor}, 'KES', ${normalisedPhone}, 'initiated', ${stkData.CheckoutRequestID}, ${stkData.MerchantRequestID})
       ON CONFLICT (provider_request_id) DO NOTHING
     `);
 

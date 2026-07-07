@@ -17,26 +17,44 @@ function getCallerIP(req: NextRequest): string {
   return forwarded?.split(",")[0]?.trim() ?? "";
 }
 
-function resultCodeToStatus(code: number): string {
+// Map Safaricom result codes to a value allowed by the
+// payment_attempts_status_check constraint: initiated | pending | success |
+// failed | cancelled | expired. The human-readable detail (insufficient
+// funds, wrong PIN, etc.) is preserved separately in failure_reason.
+function resultCodeToStatus(code: number): "success" | "cancelled" | "expired" | "failed" {
   switch (code) {
     case 0:    return "success";
-    case 1032: return "cancelled";
-    case 1037: return "timeout";
-    case 1001: return "timeout";
-    case 1019: return "expired";
-    case 1:    return "insufficient_funds";
-    case 17:   return "limit_exceeded";
-    case 1006: return "wrong_pin";
-    case 1025: return "safaricom_error";
-    default:   return "failed";
+    case 1032: return "cancelled";        // user cancelled
+    case 1037: return "expired";          // no response / DS timeout
+    case 1001: return "expired";          // unable to lock subscriber / timeout
+    case 1019: return "expired";          // transaction expired
+    default:   return "failed";           // 1 insufficient, 17 limit, 1006 wrong PIN, 1025 sys error, etc.
   }
+}
+
+// Short reason string for failure_reason, keyed off the result code.
+function resultCodeReason(code: number, desc?: string): string {
+  const known: Record<number, string> = {
+    1032: "Cancelled by user",
+    1037: "Timed out - no response",
+    1001: "Timed out - could not reach subscriber",
+    1019: "Transaction expired",
+    1:    "Insufficient funds",
+    17:   "M-Pesa daily limit exceeded",
+    1006: "Wrong M-Pesa PIN",
+    1025: "Safaricom system error",
+  };
+  return known[code] ?? desc ?? `Payment failed (code ${code})`;
 }
 
 export async function POST(req: NextRequest) {
   const ack = () => NextResponse.json({ ResultCode: 0, ResultDesc: "Accepted" });
 
-  /* ── IP validation: only accept callbacks from Safaricom ── */
-  if (process.env.NODE_ENV === "production") {
+  /* ── IP validation: only accept callbacks from Safaricom ──
+     Gate on the M-Pesa environment, not NODE_ENV: on Vercel NODE_ENV is
+     "production" for preview deploys too, so keying off it would enforce the
+     allow-list during sandbox testing. ── */
+  if (process.env.MPESA_ENVIRONMENT === "production") {
     const ip = getCallerIP(req);
     if (ip && !SAFARICOM_IPS.has(ip)) {
       console.warn("[mpesa/callback] Blocked non-Safaricom IP:", ip);
@@ -69,70 +87,79 @@ export async function POST(req: NextRequest) {
       return ack();
     }
 
-    const status = resultCodeToStatus(cb.ResultCode);
-    const payloadJson = JSON.stringify({
+    const rawResponse = JSON.stringify({
       resultCode: cb.ResultCode,
       resultDesc: cb.ResultDesc,
       rawCallback: body,
-      errorMessage: cb.ResultCode !== 0 ? cb.ResultDesc : null
     });
 
-    if (cb.ResultCode === 0) {
+    // Decide success vs failure. A success whose reported amount does not
+    // match the initiated amount (>1 KES) is downgraded to a failure rather
+    // than silently marking the order paid.
+    let success = cb.ResultCode === 0;
+    let receipt: string | undefined;
+    let reason: string | null = null;
+
+    if (success) {
       const items = cb.CallbackMetadata?.Item ?? [];
       const getVal = (name: string) => items.find((i: any) => i.Name === name)?.Value;
-      const receipt = getVal("MpesaReceiptNumber") as string | undefined;
+      receipt = getVal("MpesaReceiptNumber") as string | undefined;
       const callbackAmount = getVal("Amount") as number | undefined;
       const callbackAmountMinor = callbackAmount ? Math.round(callbackAmount * 100) : 0;
-
       if (callbackAmountMinor > 0 && Math.abs(callbackAmountMinor - Number(payment.amount_minor)) > 100) {
-        console.warn(
-          `[mpesa/callback] Amount mismatch: expected ${Number(payment.amount_minor)/100}, got ${callbackAmount}`
+        console.error(
+          `[mpesa/callback] Amount mismatch: expected ${Number(payment.amount_minor) / 100}, got ${callbackAmount} — rejecting`
         );
+        success = false;
+        reason = `Amount mismatch: paid ${callbackAmount}, expected ${Number(payment.amount_minor) / 100}`;
       }
+    }
 
-      // Update payment attempt
+    if (success) {
+      // Atomic settle: one statement (neon-http has no interactive tx). The
+      // guarded UPDATE only fires from initiated/pending, so a duplicate
+      // callback settles zero rows and the CTE is a no-op.
       const settled = (await db.execute(sql`
-        UPDATE payment.payment_attempts
-        SET status = 'success', provider_reference = ${receipt ?? null},
-            payload = ${payloadJson}::jsonb, updated_at = now()
-        WHERE id = ${payment.id} AND (status = 'initiated' OR status = 'pending')
-        RETURNING id
+        WITH settled AS (
+          UPDATE payment.payment_attempts
+          SET status = 'success', provider_reference = ${receipt ?? null},
+              failure_reason = NULL, raw_response = ${rawResponse}::jsonb, updated_at = now()
+          WHERE id = ${payment.id} AND status IN ('initiated', 'pending')
+          RETURNING order_id
+        ),
+        ord AS (
+          UPDATE commerce.orders
+          SET status = 'paid', payment_status = 'paid'
+          WHERE id IN (SELECT order_id FROM settled)
+          RETURNING id
+        )
+        INSERT INTO commerce.order_status_history (order_id, from_status, to_status, changed_by_type, notes)
+        SELECT order_id, 'pending_payment', 'paid', 'system', ${`M-Pesa payment success. Receipt: ${receipt ?? "N/A"}`}
+        FROM settled
+        RETURNING order_id
       `)).rows;
 
       if (settled.length === 0) {
-        console.warn("[mpesa/callback] Race condition: already settled");
+        console.warn("[mpesa/callback] Already settled — duplicate callback ignored");
         return ack();
       }
-
-      // Update order to paid
-      await db.execute(sql`
-        UPDATE commerce.orders
-        SET status = 'paid', payment_status = 'paid', updated_at = now()
-        WHERE id = ${payment.order_id}
-      `);
-
-      // Record status history
-      await db.execute(sql`
-        INSERT INTO commerce.order_status_history (order_id, from_status, to_status, changed_by_type, notes)
-        VALUES (${payment.order_id}, 'pending_payment', 'paid', 'system', ${`M-Pesa payment success. Receipt: ${receipt ?? 'N/A'}`})
-      `);
-
-      console.log("[mpesa/callback] SUCCESS — receipt:", receipt, "order:", payment.order_id);
+      console.log("[mpesa/callback] SUCCESS - receipt:", receipt, "order:", payment.order_id);
     } else {
-      // Payment failed/cancelled
+      const status = resultCodeToStatus(cb.ResultCode);
+      const failureReason = reason ?? resultCodeReason(cb.ResultCode, cb.ResultDesc);
       await db.execute(sql`
-        UPDATE payment.payment_attempts
-        SET status = ${status}, payload = ${payloadJson}::jsonb, updated_at = now()
-        WHERE id = ${payment.id} AND (status = 'initiated' OR status = 'pending')
-      `);
-
-      // Record status history
-      await db.execute(sql`
+        WITH settled AS (
+          UPDATE payment.payment_attempts
+          SET status = ${status}, failure_reason = ${failureReason},
+              raw_response = ${rawResponse}::jsonb, updated_at = now()
+          WHERE id = ${payment.id} AND status IN ('initiated', 'pending')
+          RETURNING order_id
+        )
         INSERT INTO commerce.order_status_history (order_id, from_status, to_status, changed_by_type, notes)
-        VALUES (${payment.order_id}, 'pending_payment', 'pending_payment', 'system', ${`M-Pesa payment failed/cancelled: ${cb.ResultDesc ?? 'N/A'}`})
+        SELECT order_id, 'pending_payment', 'pending_payment', 'system', ${`M-Pesa ${status}: ${failureReason}`}
+        FROM settled
       `);
-
-      console.warn("[mpesa/callback]", status, "— code:", cb.ResultCode);
+      console.warn("[mpesa/callback]", status, "- code:", cb.ResultCode, "-", failureReason);
     }
 
     return ack();

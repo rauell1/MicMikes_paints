@@ -96,7 +96,7 @@ export async function GET(req: NextRequest) {
           SELECT
             oi.product_name AS name,
             p.slug,
-            p.image_url,
+            '' AS image_url,
             p.category_id::text AS category,
             SUM(oi.quantity)::int AS units_sold,
             (SUM(oi.quantity * oi.unit_price_minor) / 100)::int AS revenue_kes,
@@ -107,19 +107,19 @@ export async function GET(req: NextRequest) {
           LEFT JOIN catalog.products p ON p.id = pv.product_id
           WHERE o.placed_at >= now() - interval '90 days'
             AND o.status NOT IN ('cancelled')
-          GROUP BY oi.product_name, p.slug, p.image_url, p.category_id
+          GROUP BY oi.product_name, p.slug, p.category_id
           ORDER BY units_sold DESC
           LIMIT 8
         `),
         /* Slow movers */
         db.execute(sql`
-          SELECT p.name, p.slug, p.category_id::text AS category, p.image_url,
+          SELECT p.name, p.slug, p.category_id::text AS category, '' AS image_url,
             MAX(o.placed_at) AS last_ordered
           FROM catalog.products p
           LEFT JOIN catalog.product_variants pv ON pv.product_id = p.id
           LEFT JOIN commerce.order_items oi ON oi.variant_id = pv.id
           LEFT JOIN commerce.orders o ON o.id = oi.order_id AND o.status NOT IN ('cancelled')
-          GROUP BY p.id, p.name, p.slug, p.category_id, p.image_url
+          GROUP BY p.id, p.name, p.slug, p.category_id
           HAVING MAX(o.placed_at) IS NULL OR MAX(o.placed_at) < now() - interval '60 days'
           ORDER BY last_ordered ASC NULLS FIRST
           LIMIT 8

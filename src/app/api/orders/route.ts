@@ -212,6 +212,7 @@ export async function POST(req: NextRequest) {
       quantity: number;
       unitPriceMinor: number;
       sku: string;
+      enforced: boolean;
     }[] = [];
 
     const sizeMap: Record<string, number> = { "1L": 1000, "4L": 4000, "20L": 20000 };
@@ -220,9 +221,12 @@ export async function POST(req: NextRequest) {
       const sizeMl = sizeMap[item.size] || 4000;
       
       const rows = (await db.execute(sql`
-        SELECT p.id AS product_id, p.name AS product_name, v.id AS variant_id, v.list_price_minor, v.sku
+        SELECT p.id AS product_id, p.name AS product_name, v.id AS variant_id, v.list_price_minor, v.sku,
+               v.stock_tracking,
+               COALESCE(ii.on_hand_qty, 0) AS on_hand_qty
         FROM catalog.products p
         JOIN catalog.product_variants v ON v.product_id = p.id AND v.pack_size_ml = ${sizeMl}
+        LEFT JOIN catalog.inventory_items ii ON ii.variant_id = v.id
         WHERE p.slug = ${item.productSlug} AND p.status = 'active'
         LIMIT 1
       `)).rows;
@@ -258,7 +262,47 @@ export async function POST(req: NextRequest) {
         quantity: item.quantity,
         unitPriceMinor: Number(rows[0].list_price_minor),
         sku: rows[0].sku as string,
+        // Enforce stock only where it is actually configured: tracking on AND
+        // a real on-hand quantity set. Variants left at 0 on-hand are treated
+        // as untracked/made-to-order so the store isn't blocked before stock
+        // is seeded via the admin Stock tab.
+        enforced: Boolean(rows[0].stock_tracking) && Number(rows[0].on_hand_qty) > 0,
       });
+    }
+
+    /* ── Atomic stock reservation — prevents overselling under concurrency ──
+       Each reservation is a single conditional UPDATE. Postgres takes a row
+       lock on the inventory row, so concurrent order requests for the same
+       variant serialize: each re-checks (on_hand - reserved) >= qty against
+       the latest committed value. For the last unit, exactly one request
+       succeeds; the rest match zero rows and are rejected. If a later line in
+       a multi-item order is out of stock, the reservations already made in
+       this request are released (compensation) before failing. ── */
+    const reserved: { variantId: string; qty: number }[] = [];
+    for (const it of verified) {
+      if (!it.enforced) continue;
+      const got = (await db.execute(sql`
+        UPDATE catalog.inventory_items
+        SET reserved_qty = reserved_qty + ${it.quantity}, updated_at = now()
+        WHERE variant_id = ${it.variantId}
+          AND (on_hand_qty - reserved_qty) >= ${it.quantity}
+        RETURNING variant_id
+      `)).rows;
+
+      if (got.length === 0) {
+        for (const r of reserved) {
+          await db.execute(sql`
+            UPDATE catalog.inventory_items
+            SET reserved_qty = GREATEST(0, reserved_qty - ${r.qty}), updated_at = now()
+            WHERE variant_id = ${r.variantId}
+          `);
+        }
+        return NextResponse.json(
+          { error: `Sorry, "${it.productName}" just sold out. Please update your cart and try again.`, soldOutVariantId: it.variantId },
+          { status: 409 }
+        );
+      }
+      reserved.push({ variantId: it.variantId, qty: it.quantity });
     }
 
     const subtotalMinor = verified.reduce((s, i) => s + i.unitPriceMinor * i.quantity, 0);

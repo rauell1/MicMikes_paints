@@ -176,7 +176,7 @@ function CheckoutDialog({
   const [town, setTown]       = useState("");
   const [address, setAddress] = useState("");
   const [notes, setNotes]     = useState("");
-  const [payMethod, setPayMethod] = useState<"mpesa"|"card">("mpesa");
+  const payMethod = "mpesa" as const;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [mpesaStatus, setMpesaStatus] = useState<"idle"|"pending"|"success"|"failed">("idle");
@@ -319,19 +319,14 @@ function CheckoutDialog({
           {step === "payment" && (
             <div className="space-y-3">
               <div className="text-[13px] font-[600] mb-1">Payment method</div>
-              {(["mpesa","card"] as const).map(m => (
-                <button key={m} onClick={() => setPayMethod(m)}
-                  className="w-full flex items-center gap-3 px-4 py-[13px] rounded-[14px] border text-left transition"
-                  style={{ borderColor: payMethod===m ? "#B84A32" : "#e1d3bd", background: payMethod===m ? "#fff5f2" : "#fff" }}>
-                  <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 ${payMethod===m ? "border-[#B84A32]" : "border-[#d4c8b0]"}`}>
-                    {payMethod===m && <div className="w-2 h-2 rounded-full m-auto mt-[1px]" style={{ background: "#B84A32" }} />}
-                  </div>
-                  <div>
-                    <div className="font-[600] text-[14px]">{m==="mpesa" ? "M-Pesa STK Push" : "Card (Flutterwave)"}</div>
-                    <div className="text-[12px] mm-muted">{m==="mpesa" ? "Prompt sent to your phone" : "Visa / Mastercard"}</div>
-                  </div>
-                </button>
-              ))}
+              <div className="w-full flex items-center gap-3 px-4 py-[13px] rounded-[14px] border text-left"
+                style={{ borderColor: "#B84A32", background: "#fff5f2" }}>
+                <div className="w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center text-[15px]" style={{ background: "#B84A32", color: "#fff" }}>M</div>
+                <div>
+                  <div className="font-[600] text-[14px]">M-Pesa STK Push</div>
+                  <div className="text-[12px] mm-muted">A payment prompt will be sent to your phone</div>
+                </div>
+              </div>
               <div className="mm-card rounded-[14px] p-4 space-y-[6px] text-[13px]">
                 <div className="flex justify-between"><span className="mm-muted">Subtotal</span><span className="font-[600]">{kes(subtotal)}</span></div>
                 <div className="flex justify-between mm-muted"><span>Delivery</span><span>Free</span></div>

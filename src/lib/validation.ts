@@ -61,7 +61,7 @@ export const orderFormSchema = z.object({
 
   county: z.string().min(2, 'County is required').max(200),
   town:   z.string().min(2, 'Town is required').max(200),
-  address: z.string().min(5, 'Address is required').max(200),
+  address: z.string().min(2, 'Address is required').max(200),
 
   // optional extras from the checkout form
   notes:     z.string().max(500).optional(),

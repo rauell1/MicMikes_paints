@@ -59,10 +59,11 @@ export async function GET(req: NextRequest) {
     // --- Products + price variants ---
     if (type === "products") {
       const products = (await db.execute(sql`
-        SELECT id, slug, name, short_description AS "blurb", product_type AS "category", '' AS "image"
-        FROM catalog.products
-        WHERE status = 'active'
-        ORDER BY created_at
+        SELECT p.id, p.slug, p.name, p.short_description AS "blurb", p.product_type AS "category", COALESCE(m.cdn_url, '') AS "image"
+        FROM catalog.products p
+        LEFT JOIN catalog.media_assets m ON m.owner_type = 'product' AND m.owner_id = p.id
+        WHERE p.status = 'active'
+        ORDER BY p.created_at
       `)).rows;
 
       if (!products.length) return NextResponse.json(FALLBACK_PRODUCTS);

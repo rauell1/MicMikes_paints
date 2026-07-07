@@ -5,7 +5,7 @@ import crypto from "crypto";
 import { cookies } from "next/headers";
 
 const COOKIE = "mm-admin-token";
-const cookieOpts = "HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=86400";
+const cookieOpts = "HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=86400";
 const SYSTEM_SHOWCASE_CUSTOMER_ID = "88d8bd7f-94d3-488f-a0bb-26aa77dd8e10";
 const FIRST_PARTY_VENDOR_ID = "99b7ad4f-4d32-473d-88b0-51a8cc3f5ba0";
 
@@ -245,7 +245,7 @@ export async function GET(req: NextRequest) {
     /* ── 7. PRODUCTS TAB ── */
     if (resource === "products") {
       const rows = await db.execute(sql`
-        SELECT p.id, p.slug, p.name, p.short_description AS blurb, p.product_type AS category, '' AS image_url,
+        SELECT p.id, p.slug, p.name, p.short_description AS blurb, p.product_type AS category, COALESCE(MAX(m.cdn_url), '') AS image_url,
           COALESCE(
             json_agg(
               json_build_object(
@@ -258,6 +258,7 @@ export async function GET(req: NextRequest) {
           ) AS variants
         FROM catalog.products p
         LEFT JOIN catalog.product_variants v ON v.product_id = p.id
+        LEFT JOIN catalog.media_assets m ON m.owner_type = 'product' AND m.owner_id = p.id
         GROUP BY p.id
         ORDER BY p.product_type, p.name
       `);
@@ -447,8 +448,6 @@ export async function POST(req: NextRequest) {
       const row = (await db.execute(sql`
         INSERT INTO delivery.delivery_zones (county_code, locality, base_fee_minor, zone_name)
         VALUES (${county.trim()}, ${town?.trim() || null}, ${rateMinor}, ${county.trim()})
-        ON CONFLICT (county_code, COALESCE(locality, '')) -- wait, actual constraints might differ. Let's insert and catch.
-        -- If constraint conflicts, we handle it
         RETURNING id, county_code AS county, locality AS town, base_fee_minor / 100 AS rate_kes
       `)).rows[0];
       return NextResponse.json(row);

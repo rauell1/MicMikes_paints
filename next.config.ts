@@ -24,6 +24,7 @@ const nextConfig: NextConfig = {
       { source: "/api/users/create",         destination: "/api/users?_r=create" },
       { source: "/api/users/update",         destination: "/api/users?_r=update" },
       { source: "/api/users/delete",         destination: "/api/users?_r=delete" },
+      { source: "/api/events/cart",          destination: "/api/cart-events" },
     ];
   },
 };

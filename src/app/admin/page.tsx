@@ -7,7 +7,7 @@ type AdminColour  = { id: string; code: string; name: string; hex: string; famil
 type AdminVariant = { id: string; product_id: string; size: string; price_kes: number };
 type AdminProduct = { id: string; slug: string; name: string; blurb: string; category: string; image_url: string; variants: AdminVariant[] };
 type AdminRoom    = { id: string; name: string; photo_url: string; wall_mask: string; sort_order: number };
-type AdminOrder   = { id: string; name: string; email: string; phone: string; county: string; town: string; total_kes: number; status: string; mpesa_ref: string; created_at: string; items: AdminOrderItem[] };
+type AdminOrder   = { id: string; name: string; email: string; phone: string; county: string; town: string; address: string; latitude?: string; longitude?: string; total_kes: number; status: string; mpesa_ref: string; created_at: string; items: AdminOrderItem[] };
 type AdminOrderItem = { product_slug: string; product_name?: string; colour_name: string; colour_hex: string; size: string; finish: string; quantity: number; unit_kes: number };
 type DeliveryRate = { id: string; county: string; town: string | null; rate_kes: number; updated_at: string };
 type StockEntry  = { id: string; product_id: string; product_name: string; product_slug: string; size: string; colour_id: string | null; colour_name: string | null; stock: number; low_stock_threshold: number };
@@ -1001,6 +1001,20 @@ function OrdersTab({ showToast, type = "orders" }: { showToast: (m:string) => vo
                 <div className="flex justify-between"><span className="text-[#6f6a62]">Email:</span><span>{selectedOrder.email}</span></div>
                 <div className="flex justify-between"><span className="text-[#6f6a62]">Phone:</span><span className="font-[600]">{selectedOrder.phone}</span></div>
                 <div className="flex justify-between"><span className="text-[#6f6a62]">Delivery Location:</span><span>{selectedOrder.town}, {selectedOrder.county}</span></div>
+                <div className="flex justify-between"><span className="text-[#6f6a62]">Street / Estate:</span><span>{selectedOrder.address || "N/A"}</span></div>
+                {selectedOrder.latitude && selectedOrder.longitude && (
+                  <div className="flex justify-between items-center bg-[#fff] p-2 rounded-lg border border-[#ebe2d2] mt-1.5">
+                    <span className="text-[12px] font-[600] text-[#a43a25] flex items-center gap-1">📍 Delivery Pin:</span>
+                    <a 
+                      href={`https://www.google.com/maps/search/?api=1&query=${selectedOrder.latitude},${selectedOrder.longitude}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#B84A32] hover:underline font-[700] text-[12px]"
+                    >
+                      View on Google Maps ↗
+                    </a>
+                  </div>
+                )}
               </div>
               <h4 className="font-bold text-[14px]">Order Actions</h4>
               <div className="flex flex-wrap gap-2 pt-2">
@@ -1239,6 +1253,8 @@ function DeliveryTab({ showToast }: { showToast: (m:string) => void }) {
   const [rates, setRates] = useState<DeliveryRate[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal]     = useState<Partial<DeliveryRate> | null>(null);
+  const [search, setSearch]   = useState("");
+  const [selectedCounty, setSelectedCounty] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -1272,27 +1288,56 @@ function DeliveryTab({ showToast }: { showToast: (m:string) => void }) {
     } catch (err) { showToast(`${err}`); }
   };
 
+  const uniqueCounties = Array.from(new Set(rates.map(r => r.county))).sort();
+
+  const filteredRates = rates.filter(r => {
+    const matchesSearch = r.town?.toLowerCase().includes(search.toLowerCase()) || r.county?.toLowerCase().includes(search.toLowerCase());
+    const matchesCounty = selectedCounty === "" || r.county === selectedCounty;
+    return matchesSearch && matchesCounty;
+  });
+
   if (loading) return <Spinner />;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>Delivery Zones & Rates</h2>
+        <div>
+          <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>Delivery Zones & Rates</h2>
+          <p className="text-[12px] text-[#9b9589] mt-0.5">Manage delivery rates across Kenyan counties and towns.</p>
+        </div>
         <Btn onClick={() => setModal({ county:"", town:"", rate_kes:0 })}>+ Add Rate</Btn>
+      </div>
+
+      <div className="flex flex-wrap gap-4 items-center">
+        <div className="flex-1 min-w-[200px]">
+          <SearchBar value={search} onChange={setSearch} placeholder="Search by town or county…" />
+        </div>
+        <div className="w-56">
+          <select 
+            value={selectedCounty} 
+            onChange={(e) => setSelectedCounty(e.target.value)}
+            className="w-full px-3 py-2 rounded-[12px] border border-[#d8ccb8] text-[13px] bg-white focus:outline-none focus:border-[#B84A32] transition"
+          >
+            <option value="">All Counties</option>
+            {uniqueCounties.map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="bg-white rounded-[20px] overflow-hidden border border-[#ebe2d2] mm-shadow">
         <table className="w-full text-left text-[13px] border-collapse">
           <thead>
             <tr className="bg-[#fcfaf7] border-b text-[#6f6a62] font-[700]" style={{ borderColor:"#ebe2d2" }}>
-              <th className="px-6 py-3">County Code</th>
+              <th className="px-6 py-3">County</th>
               <th className="px-6 py-3">Locality / Town</th>
               <th className="px-6 py-3">Rate (KES)</th>
               <th className="px-6 py-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#ebe2d2]">
-            {rates.map(r => (
+            {filteredRates.map(r => (
               <tr key={r.id} className="hover:bg-[#fcfaf7] transition">
                 <td className="px-6 py-3 font-[600]">{r.county}</td>
                 <td className="px-6 py-3">{r.town || <span className="text-[#9b9589] italic">Any location</span>}</td>
@@ -1303,6 +1348,13 @@ function DeliveryTab({ showToast }: { showToast: (m:string) => void }) {
                 </td>
               </tr>
             ))}
+            {filteredRates.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-6 py-8 text-center text-[#9b9589]">
+                  No delivery zones found matching the filter.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -1310,7 +1362,7 @@ function DeliveryTab({ showToast }: { showToast: (m:string) => void }) {
       {modal && (
         <Modal title={modal.id ? "Edit Delivery Rate" : "Add Delivery Rate"} onClose={() => setModal(null)}>
           <form onSubmit={save} className="space-y-4">
-            <Field label="County Code (e.g. NBI)"><input className={inp} value={modal.county} onChange={e=>setModal({...modal, county:e.target.value})} placeholder="e.g. NBI" required /></Field>
+            <Field label="County Name (e.g. Nairobi)"><input className={inp} value={modal.county} onChange={e=>setModal({...modal, county:e.target.value})} placeholder="e.g. Nairobi" required /></Field>
             <Field label="Locality / Town (optional)"><input className={inp} value={modal.town || ""} onChange={e=>setModal({...modal, town:e.target.value})} placeholder="e.g. Westlands" /></Field>
             <Field label="Delivery Rate (KES)"><input type="number" className={inp} value={modal.rate_kes} onChange={e=>setModal({...modal, rate_kes:Number(e.target.value)})} placeholder="500" min="0" required /></Field>
             <div className="pt-2 flex justify-end gap-2">

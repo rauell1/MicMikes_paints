@@ -136,10 +136,12 @@ export async function POST(req: NextRequest) {
     const email   = sanitizeEmail(data.email);
     const phone   = normaliseKenyanPhone(data.phone);
     const county  = sanitize(data.county);
-    const town    = sanitize(data.town);
+    const town    = data.town ? sanitize(data.town) : null;
     const address = sanitize(data.address);
     const notes   = data.notes ? sanitize(data.notes) : "";
     const items   = data.items;
+    const latitude  = data.latitude ? Number(data.latitude) : null;
+    const longitude = data.longitude ? Number(data.longitude) : null;
 
     /* ── 1. Create or Find Customer ── */
     let customerId: string;
@@ -169,8 +171,8 @@ export async function POST(req: NextRequest) {
 
     /* ── 2. Create Shipping Address ── */
     const addrRow = (await db.execute(sql`
-      INSERT INTO customer.addresses (customer_id, recipient_name, recipient_phone_e164, county_code, locality, estate, is_default)
-      VALUES (${customerId}, ${name}, ${phone}, ${county}, ${town}, ${address}, true)
+      INSERT INTO customer.addresses (customer_id, recipient_name, recipient_phone_e164, county_code, locality, estate, latitude, longitude, is_default)
+      VALUES (${customerId}, ${name}, ${phone}, ${county}, ${town}, ${address}, ${latitude}, ${longitude}, true)
       RETURNING id
     `)).rows;
     const addressId = addrRow[0].id as string;

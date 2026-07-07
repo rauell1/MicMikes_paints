@@ -181,6 +181,59 @@ function CheckoutDialog({
   const [error, setError] = useState("");
   const [mpesaStatus, setMpesaStatus] = useState<"idle"|"pending"|"success"|"failed">("idle");
 
+  // Geolocation & Delivery Zones states
+  const [deliveryZones, setDeliveryZones] = useState<{ county: string; town: string | null; rate_kes: number }[]>([]);
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
+  const [locStatus, setLocStatus] = useState<"idle" | "getting" | "success" | "error">("idle");
+
+  useEffect(() => {
+    fetch("/api/delivery-zones")
+      .then(res => res.json())
+      .then(data => setDeliveryZones(data || []))
+      .catch(err => console.error("Error loading zones:", err));
+  }, []);
+
+  const availableCounties = Array.from(new Set(deliveryZones.map(z => z.county))).sort();
+  const availableTowns = deliveryZones
+    .filter(z => z.county === county && z.town !== null)
+    .map(z => z.town as string)
+    .sort();
+
+  const getDeliveryFee = () => {
+    if (!county) return 0;
+    const matchTown = deliveryZones.find(z => z.county === county && z.town === town);
+    if (matchTown) return matchTown.rate_kes;
+    const matchBase = deliveryZones.find(z => z.county === county && z.town === null);
+    if (matchBase) return matchBase.rate_kes;
+    return 0;
+  };
+
+  const deliveryFee = getDeliveryFee();
+  const checkoutTotal = subtotal + deliveryFee;
+
+  const captureLocation = () => {
+    if (!navigator.geolocation) {
+      setLocStatus("error");
+      alert("Geolocation is not supported by your browser");
+      return;
+    }
+    setLocStatus("getting");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLatitude(pos.coords.latitude);
+        setLongitude(pos.coords.longitude);
+        setLocStatus("success");
+      },
+      (err) => {
+        console.error("Geolocation error:", err);
+        setLocStatus("error");
+        alert("Unable to retrieve location. Please ensure site permissions are granted.");
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  };
+
   const pollMpesaStatus = async (checkoutRequestId: string, invoice: string) => {
     const MAX_ATTEMPTS = 10;
     const INTERVAL_MS = 4000;
@@ -201,7 +254,7 @@ function CheckoutDialog({
   };
 
   const detailsValid = () => {
-    if (!name.trim() || !email.trim() || !phone.trim() || !county.trim() || !town.trim() || !address.trim()) {
+    if (!name.trim() || !email.trim() || !phone.trim() || !county.trim() || !address.trim()) {
       setError("Please fill all required fields.");
       return false;
     }
@@ -227,7 +280,7 @@ function CheckoutDialog({
       const orderRes = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, phone, county, town, address, notes, payMethod, items }),
+        body: JSON.stringify({ name, email, phone, county, town, address, notes, payMethod, items, latitude, longitude }),
       });
 
       if (!orderRes.ok) {
@@ -280,7 +333,7 @@ function CheckoutDialog({
           style={{ borderColor: "#e7d9c3", background: "#fffdf8" }}>
           <div>
             <div className="font-display text-[24px]">Checkout</div>
-            <div className="text-[12.5px] mm-muted">{cartCount} item{cartCount!==1?"s":""} · {kes(total)}</div>
+            <div className="text-[12.5px] mm-muted">{cartCount} item{cartCount!==1?"s":""} · {kes(checkoutTotal)}</div>
           </div>
           <button onClick={onClose} className="w-9 h-9 rounded-full bg-white border flex items-center justify-center"
             style={{ borderColor: "#e3d5bc" }} aria-label="Close">
@@ -308,10 +361,59 @@ function CheckoutDialog({
               <div><label className="text-[12px] font-[600] block mb-[5px]">Email *</label><input className="input" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="jane@example.com" /></div>
               <div><label className="text-[12px] font-[600] block mb-[5px]">Phone (M-Pesa) *</label><input className="input" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="07xx xxx xxx" type="tel" /></div>
               <div className="grid grid-cols-2 gap-3">
-                <div><label className="text-[12px] font-[600] block mb-[5px]">County *</label><input className="input" value={county} onChange={e=>setCounty(e.target.value)} placeholder="e.g. Kiambu" /></div>
-                <div><label className="text-[12px] font-[600] block mb-[5px]">Town *</label><input className="input" value={town} onChange={e=>setTown(e.target.value)} placeholder="e.g. Ruiru" /></div>
+                <div>
+                  <label className="text-[12px] font-[600] block mb-[5px]">County *</label>
+                  <select 
+                    className="input bg-white" 
+                    value={county} 
+                    onChange={e => { setCounty(e.target.value); setTown(""); }}
+                  >
+                    <option value="">Select County...</option>
+                    {availableCounties.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[12px] font-[600] block mb-[5px]">Town / Locality *</label>
+                  <select 
+                    className="input bg-white" 
+                    value={town} 
+                    onChange={e => setTown(e.target.value)}
+                    disabled={!county}
+                  >
+                    <option value="">Select Town/Locality...</option>
+                    {availableTowns.map(t => <option key={t} value={t}>{t}</option>)}
+                    {county && <option value="">Other / Any location (Base Rate)</option>}
+                  </select>
+                </div>
               </div>
               <div><label className="text-[12px] font-[600] block mb-[5px]">Street / Estate *</label><input className="input" value={address} onChange={e=>setAddress(e.target.value)} placeholder="Bensam Road, Apt 3A" /></div>
+              
+              <div className="bg-[#fcfaf7] border border-[#ebe2d2] p-4 rounded-[16px] space-y-2 mt-2">
+                <p className="text-[12.5px] font-[700] text-graphite flex items-center gap-1.5">
+                  <span>📍</span> Add Precise Delivery Pin (Optional)
+                </p>
+                <p className="text-[11.5px] text-[#9b9589]">Share your current location coordinates so delivery riders can easily navigate to your doorstep.</p>
+                <div className="flex items-center gap-3">
+                  <button 
+                    type="button"
+                    onClick={captureLocation}
+                    className="px-4 py-2 rounded-[12px] bg-[#B84A32] hover:bg-[#a13b24] text-white font-[700] text-[12.5px] transition flex items-center gap-1.5 active:scale-95"
+                  >
+                    {locStatus === "getting" ? "Locating..." : "📍 Share Current Location"}
+                  </button>
+                  {locStatus === "success" && latitude && longitude && (
+                    <span className="text-[12px] text-green-700 font-[600]">
+                      ✓ Pinned: {latitude.toFixed(4)}, {longitude.toFixed(4)}
+                    </span>
+                  )}
+                  {locStatus === "error" && (
+                    <span className="text-[12px] text-red-600 font-[600]">
+                      Failed to get location
+                    </span>
+                  )}
+                </div>
+              </div>
+
               <div><label className="text-[12px] font-[600] block mb-[5px]">Notes (optional)</label><textarea className="input" rows={2} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Gate colour, special instructions…" style={{ resize: "none" }} /></div>
             </div>
           )}
@@ -329,8 +431,8 @@ function CheckoutDialog({
               </div>
               <div className="mm-card rounded-[14px] p-4 space-y-[6px] text-[13px]">
                 <div className="flex justify-between"><span className="mm-muted">Subtotal</span><span className="font-[600]">{kes(subtotal)}</span></div>
-                <div className="flex justify-between mm-muted"><span>Delivery</span><span>Free</span></div>
-                <div className="flex justify-between text-[15px] font-[700] pt-2 border-t" style={{ borderColor: "#eadcc4" }}><span>Total</span><span>{kes(total)}</span></div>
+                <div className="flex justify-between mm-muted"><span>Delivery</span><span>{deliveryFee === 0 ? "Free" : kes(deliveryFee)}</span></div>
+                <div className="flex justify-between text-[15px] font-[700] pt-2 border-t" style={{ borderColor: "#eadcc4" }}><span>Total</span><span>{kes(checkoutTotal)}</span></div>
               </div>
             </div>
           )}
@@ -345,15 +447,16 @@ function CheckoutDialog({
                     <span className="font-[600] flex-shrink-0">{kes(i.unitKes * i.quantity)}</span>
                   </div>
                 ))}
-                <div className="flex justify-between mm-muted text-[13px]"><span>Delivery</span><span>Free</span></div>
-                <div className="flex justify-between font-[700] text-[15px] pt-2 border-t" style={{ borderColor: "#eadcc4" }}><span>Total</span><span>{kes(total)}</span></div>
+                <div className="flex justify-between mm-muted text-[13px]"><span>Delivery</span><span>{deliveryFee === 0 ? "Free" : kes(deliveryFee)}</span></div>
+                <div className="flex justify-between font-[700] text-[15px] pt-2 border-t" style={{ borderColor: "#eadcc4" }}><span>Total</span><span>{kes(checkoutTotal)}</span></div>
               </div>
               <div className="mm-card rounded-[14px] p-4 space-y-[5px]">
                 <div className="font-[600] mb-1">Delivery to</div>
                 <div>{name}</div>
                 <div className="mm-muted">{phone}</div>
-                <div className="mm-muted">{town}, {county}</div>
+                <div className="mm-muted">{town || "Any location"}, {county}</div>
                 <div className="mm-muted">{address}</div>
+                {latitude && longitude && <div className="text-[12px] text-green-700 font-[600]">📍 Coordinates: {latitude.toFixed(6)}, {longitude.toFixed(6)}</div>}
               </div>
               {mpesaStatus === "pending" && (
                 <div className="text-[13px] font-[600] px-4 py-3 rounded-[12px] text-center" style={{ background: "#f0f8ff", color: "#2B6CB0" }}>
@@ -377,7 +480,7 @@ function CheckoutDialog({
             }} className="btn btn-primary flex-1 py-[12px] text-[14.5px]">Continue →</button>
           ) : (
             <button onClick={handleSubmit} disabled={submitting || mpesaStatus === "pending"} className="btn btn-dark flex-1 py-[12px] text-[14.5px] disabled:opacity-50">
-              {submitting || mpesaStatus === "pending" ? "Processing…" : `Place Order · ${kes(total)}`}
+              {submitting || mpesaStatus === "pending" ? "Processing…" : `Place Order · ${kes(checkoutTotal)}`}
             </button>
           )}
         </div>

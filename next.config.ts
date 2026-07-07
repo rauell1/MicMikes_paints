@@ -17,6 +17,7 @@ const nextConfig: NextConfig = {
       { source: "/api/admin/rooms",          destination: "/api/admin?_r=rooms" },
       { source: "/api/admin/orders",         destination: "/api/admin?_r=orders" },
       { source: "/api/admin/unresolved",     destination: "/api/admin?_r=unresolved" },
+      { source: "/api/admin/payments",       destination: "/api/admin?_r=payments" },
       { source: "/api/admin/delivery-rates", destination: "/api/admin?_r=delivery-rates" },
       { source: "/api/mpesa/status/:id",     destination: "/api/mpesa/stkpush?_r=status&id=:id" },
       { source: "/api/auth/login",          destination: "/api/auth-custom?_r=login" },

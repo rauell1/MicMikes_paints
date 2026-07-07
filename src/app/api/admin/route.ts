@@ -369,6 +369,29 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(result);
     }
 
+    /* ── 9c. PAYMENTS TAB ── */
+    if (resource === "payments") {
+      const payments = (await db.execute(sql`
+        SELECT
+          pa.id,
+          o.order_number,
+          addr.recipient_name AS name,
+          pa.phone_e164 AS phone,
+          pa.amount_minor / 100 AS amount_kes,
+          pa.status,
+          pa.provider_reference AS mpesa_receipt,
+          pa.failure_reason,
+          pa.created_at
+        FROM payment.payment_attempts pa
+        JOIN commerce.orders o ON o.id = pa.order_id
+        LEFT JOIN customer.addresses addr ON addr.id = o.shipping_address_id
+        ORDER BY pa.created_at DESC
+        LIMIT 100
+      `)).rows;
+
+      return NextResponse.json(payments);
+    }
+
     return NextResponse.json({ error: "Unknown resource" }, { status: 404 });
   } catch (err) {
     console.error(`[api/admin] GET failed for resource ${resource}:`, err);

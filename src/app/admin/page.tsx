@@ -23,7 +23,7 @@ type DashboardData = {
   byCounty: { county: string; orders: number; revenue_kes: number }[];
 };
 
-type Tab = "dashboard" | "colours" | "products" | "rooms" | "orders" | "unresolved" | "delivery" | "stock" | "customers" | "staff";
+type Tab = "dashboard" | "colours" | "products" | "rooms" | "orders" | "unresolved" | "payments" | "delivery" | "stock" | "customers" | "staff";
 
 const FAMILIES   = ["Neutrals","Warm Earth","Cool Green","Blue","Red & Terracotta","Yellow & Gold"];
 const CATEGORIES = ["Paint","Primer","Supplies"];
@@ -231,6 +231,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     { id:"rooms",     label:"Rooms",     icon:"🏠" },
     { id:"orders",    label:"Orders",    icon:"📦" },
     { id:"unresolved",label:"Unresolved",icon:"⚠️" },
+    { id:"payments",  label:"Payments",  icon:"💳" },
     { id:"delivery",  label:"Delivery",  icon:"🚚" },
     { id:"stock",     label:"Stock",     icon:"📋" },
     { id:"customers", label:"Customers", icon:"👤" },
@@ -279,6 +280,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
         {tab === "rooms"     && <RoomsTab     showToast={showToast} />}
         {tab === "orders"    && <OrdersTab    showToast={showToast} type="orders" />}
         {tab === "unresolved" && <OrdersTab   showToast={showToast} type="unresolved" />}
+        {tab === "payments"  && <PaymentsTab  showToast={showToast} />}
         {tab === "delivery"  && <DeliveryTab  showToast={showToast} />}
         {tab === "stock"     && <StockTab     showToast={showToast} />}
         {tab === "customers" && <CustomersTab showToast={showToast} />}
@@ -1054,6 +1056,140 @@ function OrdersTab({ showToast, type = "orders" }: { showToast: (m:string) => vo
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+/* ─── Payments Tab ─── */
+type AdminPayment = {
+  id: string;
+  order_number: string;
+  name: string;
+  phone: string;
+  amount_kes: number;
+  status: string;
+  mpesa_receipt: string | null;
+  failure_reason: string | null;
+  created_at: string;
+};
+
+function PaymentsTab({ showToast }: { showToast: (m:string) => void }) {
+  const [payments, setPayments] = useState<AdminPayment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch]   = useState("");
+
+  const load = async () => {
+    setLoading(true);
+    try { const data = await api("/api/admin/payments"); setPayments(data || []); }
+    catch (e) { showToast(`Load failed: ${e}`); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const filtered = payments.filter(p =>
+    p.name?.toLowerCase().includes(search.toLowerCase()) ||
+    p.phone?.includes(search) ||
+    p.order_number?.toLowerCase().includes(search.toLowerCase()) ||
+    p.mpesa_receipt?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const exportPaymentsCSV = () => {
+    downloadCSV("micmikes-payments.csv", payments.map(p => ({
+      Transaction_ID: p.id,
+      Order_Number: p.order_number,
+      Customer_Name: p.name,
+      Phone: p.phone,
+      Amount_KES: p.amount_kes,
+      Status: p.status,
+      Mpesa_Receipt: p.mpesa_receipt,
+      Failure_Reason: p.failure_reason,
+      Date: p.created_at,
+    })));
+  };
+
+  const statusBadge = (s: string) => {
+    const map: Record<string, string> = {
+      initiated: "bg-blue-50 text-blue-700 border-blue-200",
+      pending: "bg-yellow-50 text-yellow-700 border-yellow-200",
+      success: "bg-green-50 text-green-700 border-green-200",
+      failed: "bg-red-50 text-red-700 border-red-200",
+      cancelled: "bg-red-50 text-red-700 border-red-200",
+      expired: "bg-gray-50 text-gray-700 border-gray-200"
+    };
+    return (
+      <span className={`text-[11px] font-[600] px-2 py-0.5 rounded-full border ${map[s] ?? "bg-gray-50 text-gray-700"}`}>
+        {s}
+      </span>
+    );
+  };
+
+  if (loading) return <Spinner />;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>M-Pesa Payments</h2>
+          <p className="text-[12px] text-[#9b9589] mt-0.5">Real-time payment logs of STK pushes and transactions.</p>
+        </div>
+        <div className="flex gap-2">
+          <Btn variant="outline" size="sm" onClick={exportPaymentsCSV}>⬇ Export CSV</Btn>
+          <Btn variant="outline" onClick={load}>↻ Refresh</Btn>
+        </div>
+      </div>
+
+      <div className="w-full max-w-md">
+        <SearchBar value={search} onChange={setSearch} placeholder="Search by name, phone, receipt or order ref…" />
+      </div>
+
+      <div className="bg-white rounded-[20px] overflow-hidden border border-[#ebe2d2] mm-shadow">
+        <table className="w-full text-left text-[13px] border-collapse">
+          <thead>
+            <tr className="bg-[#fcfaf7] border-b text-[#6f6a62] font-[700]" style={{ borderColor:"#ebe2d2" }}>
+              <th className="px-6 py-3">Date</th>
+              <th className="px-6 py-3">Order Ref</th>
+              <th className="px-6 py-3">Customer</th>
+              <th className="px-6 py-3">M-Pesa Phone</th>
+              <th className="px-6 py-3">Receipt / Ref</th>
+              <th className="px-6 py-3">Amount</th>
+              <th className="px-6 py-3">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#ebe2d2]">
+            {filtered.map(p => (
+              <tr key={p.id} className="hover:bg-[#fcfaf7] transition">
+                <td className="px-6 py-3 text-[#6f6a62]">
+                  {new Date(p.created_at).toLocaleString("en-KE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                </td>
+                <td className="px-6 py-3 font-mono font-[700] text-[#B84A32]">{p.order_number}</td>
+                <td className="px-6 py-3 font-[600]">{p.name || "N/A"}</td>
+                <td className="px-6 py-3 font-mono">{p.phone}</td>
+                <td className="px-6 py-3">
+                  {p.mpesa_receipt ? (
+                    <span className="font-mono font-[700] text-[#16a34a]">{p.mpesa_receipt}</span>
+                  ) : p.failure_reason ? (
+                    <span className="text-red-600 text-[12px]" title={p.failure_reason}>
+                      ⚠️ {p.failure_reason.length > 25 ? p.failure_reason.slice(0, 25) + "..." : p.failure_reason}
+                    </span>
+                  ) : (
+                    <span className="text-[#9b9589]">—</span>
+                  )}
+                </td>
+                <td className="px-6 py-3 font-[700]">{kes(p.amount_kes)}</td>
+                <td className="px-6 py-3">{statusBadge(p.status)}</td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-6 py-8 text-center text-[#9b9589]">
+                  No payment attempts found.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

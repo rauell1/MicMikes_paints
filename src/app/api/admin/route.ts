@@ -352,7 +352,7 @@ export async function GET(req: NextRequest) {
         LEFT JOIN catalog.product_variants pv ON pv.id = oi.variant_id
         LEFT JOIN catalog.products p ON p.id = pv.product_id
         LEFT JOIN catalog.shades s ON s.id = pv.shade_id
-        WHERE oi.order_id = ANY(${orderIds})
+        WHERE oi.order_id IN ${orderIds}
       `)).rows;
 
       const itemsByOrder = items.reduce<Record<string, any[]>>((acc, item) => {

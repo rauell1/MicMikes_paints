@@ -25,18 +25,31 @@ type TrackedOrder = {
 const kes = (n: number) => `KES ${n.toLocaleString("en-KE")}`;
 
 const STATUS_STYLES: Record<string, { bg: string; color: string; label: string; icon: string }> = {
-  pending:    { bg: "#fefce8", color: "#a16207", label: "Pending",    icon: "⏳" },
-  paid:       { bg: "#f0fdf4", color: "#15803d", label: "Paid",       icon: "✅" },
-  processing: { bg: "#eff6ff", color: "#1d4ed8", label: "Processing", icon: "🔄" },
-  shipped:    { bg: "#faf5ff", color: "#7e22ce", label: "Shipped",    icon: "🚚" },
-  delivered:  { bg: "#ecfdf5", color: "#065f46", label: "Delivered",  icon: "🎉" },
-  cancelled:  { bg: "#fef2f2", color: "#b91c1c", label: "Cancelled",  icon: "✕"  },
+  pending_payment: { bg: "#fefce8", color: "#a16207", label: "Awaiting Payment", icon: "⏳" },
+  pending:         { bg: "#fefce8", color: "#a16207", label: "Awaiting Payment", icon: "⏳" },
+  paid:            { bg: "#f0fdf4", color: "#15803d", label: "Paid",       icon: "✅" },
+  confirmed:       { bg: "#eff6ff", color: "#1d4ed8", label: "Confirmed",  icon: "🔄" },
+  processing:      { bg: "#eff6ff", color: "#1d4ed8", label: "Processing", icon: "🔄" },
+  packed:          { bg: "#eff6ff", color: "#1d4ed8", label: "Packed",     icon: "📦" },
+  out_for_delivery:{ bg: "#faf5ff", color: "#7e22ce", label: "Out for delivery", icon: "🚚" },
+  shipped:         { bg: "#faf5ff", color: "#7e22ce", label: "Shipped",    icon: "🚚" },
+  delivered:       { bg: "#ecfdf5", color: "#065f46", label: "Delivered",  icon: "🎉" },
+  cancelled:       { bg: "#fef2f2", color: "#b91c1c", label: "Cancelled",  icon: "✕"  },
 };
 
-const STEPS = ["pending", "paid", "processing", "shipped", "delivered"];
+const STEPS = ["pending_payment", "paid", "processing", "shipped", "delivered"];
+// A pending_payment order maps to step 0; paid/confirmed to step 1; etc.
+const STEP_ALIASES: Record<string, string> = {
+  pending: "pending_payment",
+  confirmed: "paid",
+  packed: "processing",
+  out_for_delivery: "shipped",
+};
+const stepIndex = (status: string) => STEPS.indexOf(STEP_ALIASES[status] ?? status);
 
-const SUCCESSFUL_STATUSES   = new Set(["paid", "processing", "shipped", "delivered"]);
-const UNSUCCESSFUL_STATUSES = new Set(["pending", "cancelled"]);
+const SUCCESSFUL_STATUSES   = new Set(["paid", "confirmed", "processing", "packed", "out_for_delivery", "shipped", "delivered"]);
+const UNSUCCESSFUL_STATUSES = new Set(["pending_payment", "pending", "cancelled"]);
+const PAYABLE_STATUSES      = new Set(["pending_payment", "pending"]);
 
 function StatusBadge({ status }: { status: string }) {
   const s = STATUS_STYLES[status] ?? { bg: "#f3f4f6", color: "#374151", label: status, icon: "•" };
@@ -50,8 +63,9 @@ function StatusBadge({ status }: { status: string }) {
 
 function ProgressBar({ status }: { status: string }) {
   if (status === "cancelled") return null;
-  const idx = STEPS.indexOf(status);
+  const idx = stepIndex(status);
   if (idx === -1) return null;
+  const LABELS = ["payment", "paid", "processing", "shipped", "delivered"];
   return (
     <div className="flex items-center gap-0 mt-3 mb-1">
       {STEPS.map((step, i) => {
@@ -70,7 +84,7 @@ function ProgressBar({ status }: { status: string }) {
                 {done ? "✓" : i + 1}
               </div>
               <span className="text-[8px] mt-[2px] font-[600] capitalize text-center"
-                style={{ color: done ? "#B84A32" : "#9b9589" }}>{step}</span>
+                style={{ color: done ? "#B84A32" : "#9b9589" }}>{LABELS[i]}</span>
             </div>
             {i < STEPS.length - 1 && (
               <div className="flex-1 h-[2px] mx-0.5 rounded-full mb-4"
@@ -83,10 +97,98 @@ function ProgressBar({ status }: { status: string }) {
   );
 }
 
-function OrderCard({ order }: { order: TrackedOrder }) {
+/* ── Self-service M-Pesa payment for an unpaid order ── */
+function PayNow({ order, phone, onPaid }: { order: TrackedOrder; phone: string; onPaid: () => void }) {
+  const [state, setState] = useState<"idle" | "sending" | "waiting" | "success" | "failed">("idle");
+  const [msg, setMsg] = useState("");
+
+  const poll = async (checkoutRequestId: string) => {
+    for (let i = 0; i < 16; i++) {                       // ~48s
+      await new Promise(r => setTimeout(r, 3000));
+      try {
+        const res = await fetch(`/api/mpesa/status/${encodeURIComponent(checkoutRequestId)}`);
+        if (!res.ok) continue;
+        const d = await res.json() as { status?: string; failureReason?: string };
+        if (d.status === "success") {
+          setState("success");
+          setMsg("Payment received. Your order is confirmed 🎉");
+          onPaid();
+          return;
+        }
+        if (["failed", "cancelled", "expired"].includes(d.status ?? "")) {
+          setState("failed");
+          setMsg(d.failureReason || "Payment was not completed. Please try again.");
+          return;
+        }
+      } catch { /* keep polling */ }
+    }
+    setState("failed");
+    setMsg("We haven't received confirmation yet. If you paid, this will update automatically.");
+  };
+
+  const payNow = async () => {
+    setState("sending"); setMsg("");
+    try {
+      const res = await fetch("/api/mpesa/stkpush", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: order.id, phone, amountKes: order.total_kes }),
+      });
+      const d = await res.json().catch(() => ({})) as { checkoutRequestId?: string; error?: string };
+      if (!res.ok) {
+        setState("failed");
+        setMsg(d.error || "Could not send the prompt. Please try again.");
+        return;
+      }
+      setState("waiting");
+      setMsg("Prompt sent — enter your M-Pesa PIN on your phone.");
+      if (d.checkoutRequestId) poll(d.checkoutRequestId);
+    } catch {
+      setState("failed");
+      setMsg("Network error. Please try again.");
+    }
+  };
+
+  if (state === "success") {
+    return (
+      <div className="px-4 py-3 text-[12.5px] font-[600]" style={{ background: "#f0fdf4", color: "#15803d", borderTop: "1px solid #ebe2d2" }}>
+        {msg}
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-4 py-3 space-y-2" style={{ borderTop: "1px solid #ebe2d2", background: "#fffdf8" }}>
+      <button
+        onClick={payNow}
+        disabled={state === "sending" || state === "waiting"}
+        className="btn btn-primary w-full py-[11px] text-[13.5px] disabled:opacity-60"
+      >
+        {state === "sending" ? "Sending prompt…"
+          : state === "waiting" ? "Waiting for PIN…"
+          : `Pay with M-Pesa · ${kes(order.total_kes)}`}
+      </button>
+      {msg && (
+        <div className="text-[12px] font-[600] px-3 py-2 rounded-[10px]"
+          style={state === "failed"
+            ? { background: "#fdf0ee", color: "#B84A32" }
+            : { background: "#fefce8", color: "#92400e" }}>
+          {msg}
+          {state === "failed" && <button onClick={payNow} className="ml-2 underline">Try again</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OrderCard({ order, phone }: { order: TrackedOrder; phone: string }) {
+  const [paid, setPaid] = useState(false);
+  const displayStatus = paid ? "paid" : order.status;
   const date = new Date(order.created_at).toLocaleDateString("en-KE", {
     day: "numeric", month: "short", year: "numeric",
   });
+  const canPay = !paid && PAYABLE_STATUSES.has(order.status) && !!phone.trim();
+
   return (
     <div className="mm-card rounded-[18px] overflow-hidden mm-shadow">
       {/* Header */}
@@ -96,12 +198,12 @@ function OrderCard({ order }: { order: TrackedOrder }) {
           <div className="font-mono2 text-[11.5px] font-[600]" style={{ color: "#B84A32" }}>{order.reference}</div>
           <div className="text-[11px] mm-muted mt-[1px]">{date} · {order.town}, {order.county}</div>
         </div>
-        <StatusBadge status={order.status} />
+        <StatusBadge status={displayStatus} />
       </div>
 
       {/* Progress */}
       <div className="px-4 pt-3 pb-1">
-        <ProgressBar status={order.status} />
+        <ProgressBar status={displayStatus} />
       </div>
 
       {/* Items */}
@@ -128,6 +230,9 @@ function OrderCard({ order }: { order: TrackedOrder }) {
         )}
         <span className="font-[700] text-[13px]">Total: {kes(order.total_kes)}</span>
       </div>
+
+      {/* Self-service payment */}
+      {canPay && <PayNow order={order} phone={phone} onPaid={() => setPaid(true)} />}
     </div>
   );
 }
@@ -138,6 +243,7 @@ export default function TrackOrder() {
   const [orders, setOrders]     = useState<TrackedOrder[] | null>(null);
   const [error, setError]       = useState("");
   const [searched, setSearched] = useState(false);
+  const [lastPhone, setLastPhone] = useState("");
 
   const lookup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -151,6 +257,7 @@ export default function TrackOrder() {
       }
       const data = await res.json() as TrackedOrder[];
       setOrders(data);
+      setLastPhone(phone.trim());
       setSearched(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -169,7 +276,7 @@ export default function TrackOrder() {
         {/* Search bar — always centred */}
         <div className="max-w-[540px] mx-auto">
           <h2 className="font-display text-[30px] sm:text-[36px] mb-1">Track Your Order</h2>
-          <p className="mm-muted text-[14px] mb-6">Enter the M-Pesa phone number you used at checkout.</p>
+          <p className="mm-muted text-[14px] mb-6">Enter the M-Pesa phone number you used at checkout. You can also finish paying any unpaid order here.</p>
 
           <form onSubmit={lookup} className="flex gap-2 mb-6">
             <input
@@ -219,7 +326,7 @@ export default function TrackOrder() {
                   </div>
                 </div>
                 <div className="space-y-4">
-                  {successfulOrders.map(order => <OrderCard key={order.id} order={order} />)}
+                  {successfulOrders.map(order => <OrderCard key={order.id} order={order} phone={lastPhone} />)}
                 </div>
               </div>
             )}
@@ -235,11 +342,11 @@ export default function TrackOrder() {
                   </div>
                 </div>
                 <div className="space-y-4">
-                  {unsuccessfulOrders.map(order => <OrderCard key={order.id} order={order} />)}
+                  {unsuccessfulOrders.map(order => <OrderCard key={order.id} order={order} phone={lastPhone} />)}
                 </div>
-                {unsuccessfulOrders.some(o => o.status === "pending") && (
+                {unsuccessfulOrders.some(o => PAYABLE_STATUSES.has(o.status)) && (
                   <div className="mt-4 px-4 py-3 rounded-[14px] text-[12.5px]" style={{ background: "#fefce8", border: "1px solid #fde68a", color: "#92400e" }}>
-                    <strong>Awaiting payment?</strong> Complete your M-Pesa payment and your order will update automatically.
+                    <strong>Not paid yet?</strong> Tap <em>Pay with M-Pesa</em> on the order above to get a fresh payment prompt on your phone.
                   </div>
                 )}
               </div>

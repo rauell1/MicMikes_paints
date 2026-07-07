@@ -140,6 +140,7 @@ export async function GET(req: NextRequest) {
           FROM commerce.orders o
           LEFT JOIN customer.customers cust ON cust.id = o.customer_id
           LEFT JOIN customer.addresses addr ON addr.id = o.shipping_address_id
+          WHERE NOT (o.status = 'pending_payment' AND o.placed_at < now() - INTERVAL '24 hours')
           ORDER BY o.placed_at DESC
           LIMIT 10
         `),
@@ -277,29 +278,61 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(rows.rows);
     }
 
-    /* ── 9. ORDERS TAB ── */
-    if (resource === "orders") {
-      const orders = (await db.execute(sql`
-        SELECT
-          o.id,
-          addr.recipient_name AS name,
-          cust.email,
-          addr.recipient_phone_e164 AS phone,
-          addr.county_code AS county,
-          addr.locality AS town,
-          addr.estate AS address,
-          o.subtotal_minor / 100 AS subtotal_kes,
-          o.shipping_minor / 100 AS delivery_kes,
-          o.total_minor / 100 AS total_kes,
-          o.status,
-          o.order_number AS mpesa_ref,
-          o.placed_at AS created_at
-        FROM commerce.orders o
-        LEFT JOIN customer.customers cust ON cust.id = o.customer_id
-        LEFT JOIN customer.addresses addr ON addr.id = o.shipping_address_id
-        ORDER BY o.placed_at DESC
-        LIMIT 200
-      `)).rows;
+    /* ── 9. ORDERS & UNRESOLVED TABS ── */
+    if (resource === "orders" || resource === "unresolved") {
+      // Automatically delete unresolved orders older than 30 days
+      await db.execute(sql`
+        DELETE FROM commerce.orders
+        WHERE status = 'pending_payment' AND placed_at < now() - INTERVAL '30 days'
+      `);
+
+      const query = resource === "orders"
+        ? sql`
+            SELECT
+              o.id,
+              addr.recipient_name AS name,
+              cust.email,
+              addr.recipient_phone_e164 AS phone,
+              addr.county_code AS county,
+              addr.locality AS town,
+              addr.estate AS address,
+              o.subtotal_minor / 100 AS subtotal_kes,
+              o.shipping_minor / 100 AS delivery_kes,
+              o.total_minor / 100 AS total_kes,
+              o.status,
+              o.order_number AS mpesa_ref,
+              o.placed_at AS created_at
+            FROM commerce.orders o
+            LEFT JOIN customer.customers cust ON cust.id = o.customer_id
+            LEFT JOIN customer.addresses addr ON addr.id = o.shipping_address_id
+            WHERE NOT (o.status = 'pending_payment' AND o.placed_at < now() - INTERVAL '24 hours')
+            ORDER BY o.placed_at DESC
+            LIMIT 200
+          `
+        : sql`
+            SELECT
+              o.id,
+              addr.recipient_name AS name,
+              cust.email,
+              addr.recipient_phone_e164 AS phone,
+              addr.county_code AS county,
+              addr.locality AS town,
+              addr.estate AS address,
+              o.subtotal_minor / 100 AS subtotal_kes,
+              o.shipping_minor / 100 AS delivery_kes,
+              o.total_minor / 100 AS total_kes,
+              o.status,
+              o.order_number AS mpesa_ref,
+              o.placed_at AS created_at
+            FROM commerce.orders o
+            LEFT JOIN customer.customers cust ON cust.id = o.customer_id
+            LEFT JOIN customer.addresses addr ON addr.id = o.shipping_address_id
+            WHERE o.status = 'pending_payment' AND o.placed_at < now() - INTERVAL '24 hours'
+            ORDER BY o.placed_at DESC
+            LIMIT 200
+          `;
+
+      const orders = (await db.execute(query)).rows;
 
       if (!orders.length) return NextResponse.json([]);
 

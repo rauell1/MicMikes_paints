@@ -23,7 +23,7 @@ type DashboardData = {
   byCounty: { county: string; orders: number; revenue_kes: number }[];
 };
 
-type Tab = "dashboard" | "colours" | "products" | "rooms" | "orders" | "delivery" | "stock" | "customers" | "staff";
+type Tab = "dashboard" | "colours" | "products" | "rooms" | "orders" | "unresolved" | "delivery" | "stock" | "customers" | "staff";
 
 const FAMILIES   = ["Neutrals","Warm Earth","Cool Green","Blue","Red & Terracotta","Yellow & Gold"];
 const CATEGORIES = ["Paint","Primer","Supplies"];
@@ -230,6 +230,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     { id:"products",  label:"Products",  icon:"🪣" },
     { id:"rooms",     label:"Rooms",     icon:"🏠" },
     { id:"orders",    label:"Orders",    icon:"📦" },
+    { id:"unresolved",label:"Unresolved",icon:"⚠️" },
     { id:"delivery",  label:"Delivery",  icon:"🚚" },
     { id:"stock",     label:"Stock",     icon:"📋" },
     { id:"customers", label:"Customers", icon:"👤" },
@@ -276,7 +277,8 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
         {tab === "colours"   && <ColoursTab   showToast={showToast} />}
         {tab === "products"  && <ProductsTab  showToast={showToast} />}
         {tab === "rooms"     && <RoomsTab     showToast={showToast} />}
-        {tab === "orders"    && <OrdersTab    showToast={showToast} />}
+        {tab === "orders"    && <OrdersTab    showToast={showToast} type="orders" />}
+        {tab === "unresolved" && <OrdersTab   showToast={showToast} type="unresolved" />}
         {tab === "delivery"  && <DeliveryTab  showToast={showToast} />}
         {tab === "stock"     && <StockTab     showToast={showToast} />}
         {tab === "customers" && <CustomersTab showToast={showToast} />}
@@ -850,7 +852,7 @@ function RoomsTab({ showToast }: { showToast: (m:string) => void }) {
 }
 
 /* ─── Orders Tab ─── */
-function OrdersTab({ showToast }: { showToast: (m:string) => void }) {
+function OrdersTab({ showToast, type = "orders" }: { showToast: (m:string) => void; type?: "orders" | "unresolved" }) {
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null);
@@ -858,12 +860,12 @@ function OrdersTab({ showToast }: { showToast: (m:string) => void }) {
 
   const load = async () => {
     setLoading(true);
-    try { const data = await api("/api/admin/orders"); setOrders(data || []); }
+    try { const data = await api(`/api/admin/${type}`); setOrders(data || []); }
     catch (e) { showToast(`Load failed: ${e}`); }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [type]);
 
   const updateStatus = async (id: string, s: string) => {
     try {
@@ -883,7 +885,7 @@ function OrdersTab({ showToast }: { showToast: (m:string) => void }) {
   );
 
   const exportOrdersCSV = () => {
-    downloadCSV("micmikes-orders.csv", orders.map(o => ({
+    downloadCSV(type === "unresolved" ? "micmikes-unresolved-orders.csv" : "micmikes-orders.csv", orders.map(o => ({
       Order_Number: o.mpesa_ref,
       Customer_Name: o.name,
       Email: o.email,
@@ -901,12 +903,29 @@ function OrdersTab({ showToast }: { showToast: (m:string) => void }) {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>Orders</h2>
+        <div>
+          <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>
+            {type === "unresolved" ? "Unresolved Orders" : "Orders"}
+          </h2>
+          {type === "unresolved" && (
+            <p className="text-[12px] text-[#9b9589] mt-0.5">Unpaid orders placed more than 24 hours ago. They are automatically deleted after 30 days.</p>
+          )}
+        </div>
         <div className="flex gap-2">
           <Btn variant="outline" size="sm" onClick={exportOrdersCSV}>⬇ Export CSV</Btn>
           <Btn variant="outline" onClick={load}>↻ Refresh</Btn>
         </div>
       </div>
+
+      {type === "unresolved" && orders.length > 0 && (
+        <div className="rounded-[12px] p-4 bg-[#fff0ee] border border-[#f5c8be] flex items-start gap-2.5">
+          <span className="text-[16px] leading-none">⚠️</span>
+          <div className="text-[12.5px] text-[#a43a25]">
+            <p className="font-[600]">Automatic Deletion Warning</p>
+            <p className="mt-0.5 opacity-90">The orders below have been unpaid for more than 24 hours. They will be permanently removed from the system 30 days after their placement date unless confirmed or cancelled.</p>
+          </div>
+        </div>
+      )}
 
       <div className="w-full max-w-md">
         <SearchBar value={search} onChange={setSearch} placeholder="Search by name, phone or ref…" />

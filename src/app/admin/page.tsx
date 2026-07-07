@@ -857,6 +857,7 @@ function OrdersTab({ showToast, type = "orders" }: { showToast: (m:string) => vo
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null);
   const [search, setSearch]   = useState("");
+  const [stkPhone, setStkPhone] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -867,6 +868,14 @@ function OrdersTab({ showToast, type = "orders" }: { showToast: (m:string) => vo
 
   useEffect(() => { load(); }, [type]);
 
+  useEffect(() => {
+    if (selectedOrder) {
+      setStkPhone(selectedOrder.phone);
+    } else {
+      setStkPhone("");
+    }
+  }, [selectedOrder]);
+
   const updateStatus = async (id: string, s: string) => {
     try {
       await api("/api/admin/orders", { method:"PUT", body: JSON.stringify({ id, status: s }) });
@@ -876,6 +885,23 @@ function OrdersTab({ showToast, type = "orders" }: { showToast: (m:string) => vo
         setSelectedOrder(prev => prev ? { ...prev, status: s } : null);
       }
     } catch (err) { showToast(`${err}`); }
+  };
+
+  const sendStkPush = async (order: AdminOrder, phoneNo: string) => {
+    try {
+      showToast("Sending M-Pesa STK push...");
+      const res = await api("/api/mpesa/stkpush", {
+        method: "POST",
+        body: JSON.stringify({
+          orderId: order.id,
+          phone: phoneNo,
+          amountKes: order.total_kes
+        })
+      });
+      showToast(res.customerMessage || "STK Push sent successfully!");
+    } catch (err) {
+      showToast(`STK Push failed: ${err}`);
+    }
   };
 
   const filtered = orders.filter(o =>
@@ -976,6 +1002,29 @@ function OrdersTab({ showToast, type = "orders" }: { showToast: (m:string) => vo
               </div>
               <h4 className="font-bold text-[14px]">Order Actions</h4>
               <div className="flex flex-wrap gap-2 pt-2">
+                {selectedOrder.status === "pending_payment" && (
+                  <div className="w-full space-y-2 border border-[#f5c8be] bg-[#fff0ee] p-4 rounded-[12px] mb-3">
+                    <p className="text-[12.5px] font-[700] text-[#a43a25] flex items-center gap-1.5">
+                      <span>📲</span> Send M-Pesa STK Push
+                    </p>
+                    <p className="text-[11.5px] text-[#6f6a62]">Trigger a payment request prompt on the customer's phone for this order (KES {selectedOrder.total_kes}).</p>
+                    <div className="flex gap-2 pt-1">
+                      <input 
+                        type="text" 
+                        value={stkPhone} 
+                        onChange={(e) => setStkPhone(e.target.value)}
+                        placeholder="2547XXXXXXXX" 
+                        className="flex-1 px-3 py-1.5 rounded-[10px] border border-[#d8ccb8] text-[13px] bg-white focus:outline-none focus:border-[#B84A32] transition" 
+                      />
+                      <Btn 
+                        size="sm" 
+                        onClick={() => sendStkPush(selectedOrder, stkPhone)}
+                      >
+                        Send Prompt
+                      </Btn>
+                    </div>
+                  </div>
+                )}
                 <Btn variant="outline" size="sm" onClick={() => updateStatus(selectedOrder.id, "confirmed")}>Confirm Order</Btn>
                 <Btn variant="outline" size="sm" onClick={() => updateStatus(selectedOrder.id, "packed")}>Mark Packed</Btn>
                 <Btn variant="outline" size="sm" onClick={() => updateStatus(selectedOrder.id, "out_for_delivery")}>Ship Out</Btn>

@@ -16,6 +16,7 @@ type TrackedOrder = {
   created_at: string;
   status: string;
   total_kes: number;
+  paid_kes?: number;
   delivery_kes: number;
   county: string;
   town: string;
@@ -97,24 +98,29 @@ function ProgressBar({ status }: { status: string }) {
   );
 }
 
-/* ── Self-service M-Pesa payment for an unpaid order ── */
-function PayNow({ order, phone, onPaid }: { order: TrackedOrder; phone: string; onPaid: () => void }) {
-  const [state, setState] = useState<"idle" | "sending" | "waiting" | "success" | "failed">("idle");
+/* ── Self-service M-Pesa payment for an unpaid order ──
+   Supports a different M-Pesa line than the one used to search, and partial
+   payments up to the outstanding balance. ── */
+function PayNow({ order, defaultPhone, balanceKes, onPaid }: {
+  order: TrackedOrder; defaultPhone: string; balanceKes: number; onPaid: (amountKes: number) => void;
+}) {
+  const [state, setState] = useState<"idle" | "sending" | "waiting" | "failed">("idle");
   const [msg, setMsg] = useState("");
+  const [payPhone, setPayPhone] = useState(defaultPhone);
+  const [amount, setAmount] = useState(String(balanceKes));
 
-  const poll = async (checkoutRequestId: string) => {
+  const amt = Math.round(Number(amount));
+  const amountValid = Number.isFinite(amt) && amt >= 1 && amt <= balanceKes;
+  const busy = state === "sending" || state === "waiting";
+
+  const poll = async (checkoutRequestId: string, paidAmount: number) => {
     for (let i = 0; i < 16; i++) {                       // ~48s
       await new Promise(r => setTimeout(r, 3000));
       try {
         const res = await fetch(`/api/mpesa/status/${encodeURIComponent(checkoutRequestId)}`);
         if (!res.ok) continue;
         const d = await res.json() as { status?: string; failureReason?: string };
-        if (d.status === "success") {
-          setState("success");
-          setMsg("Payment received. Your order is confirmed 🎉");
-          onPaid();
-          return;
-        }
+        if (d.status === "success") { onPaid(paidAmount); return; }
         if (["failed", "cancelled", "expired"].includes(d.status ?? "")) {
           setState("failed");
           setMsg(d.failureReason || "Payment was not completed. Please try again.");
@@ -123,16 +129,18 @@ function PayNow({ order, phone, onPaid }: { order: TrackedOrder; phone: string; 
       } catch { /* keep polling */ }
     }
     setState("failed");
-    setMsg("We haven't received confirmation yet. If you paid, this will update automatically.");
+    setMsg("We haven't received confirmation yet. If you paid, this will update automatically — refresh in a moment.");
   };
 
   const payNow = async () => {
+    if (!payPhone.trim()) { setState("failed"); setMsg("Enter the M-Pesa number to pay from."); return; }
+    if (!amountValid)    { setState("failed"); setMsg(`Enter an amount between KES 1 and KES ${balanceKes.toLocaleString("en-KE")}.`); return; }
     setState("sending"); setMsg("");
     try {
       const res = await fetch("/api/mpesa/stkpush", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId: order.id, phone, amountKes: order.total_kes }),
+        body: JSON.stringify({ orderId: order.id, phone: payPhone.trim(), amountKes: amt }),
       });
       const d = await res.json().catch(() => ({})) as { checkoutRequestId?: string; error?: string };
       if (!res.ok) {
@@ -141,32 +149,36 @@ function PayNow({ order, phone, onPaid }: { order: TrackedOrder; phone: string; 
         return;
       }
       setState("waiting");
-      setMsg("Prompt sent — enter your M-Pesa PIN on your phone.");
-      if (d.checkoutRequestId) poll(d.checkoutRequestId);
+      setMsg(`Prompt sent to ${payPhone.trim()} — enter your M-Pesa PIN.`);
+      if (d.checkoutRequestId) poll(d.checkoutRequestId, amt);
     } catch {
       setState("failed");
       setMsg("Network error. Please try again.");
     }
   };
 
-  if (state === "success") {
-    return (
-      <div className="px-4 py-3 text-[12.5px] font-[600]" style={{ background: "#f0fdf4", color: "#15803d", borderTop: "1px solid #ebe2d2" }}>
-        {msg}
-      </div>
-    );
-  }
-
   return (
-    <div className="px-4 py-3 space-y-2" style={{ borderTop: "1px solid #ebe2d2", background: "#fffdf8" }}>
+    <div className="px-4 py-3 space-y-2.5" style={{ borderTop: "1px solid #ebe2d2", background: "#fffdf8" }}>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="text-[11px] font-[600] mm-muted">
+          Pay from (M-Pesa no.)
+          <input className="input mt-1 text-[13px]" type="tel" value={payPhone} disabled={busy}
+            onChange={e => setPayPhone(e.target.value)} placeholder="07xx xxx xxx" />
+        </label>
+        <label className="text-[11px] font-[600] mm-muted">
+          Amount (KES)
+          <input className="input mt-1 text-[13px]" type="number" inputMode="numeric" min={1} max={balanceKes}
+            value={amount} disabled={busy} onChange={e => setAmount(e.target.value)} />
+        </label>
+      </div>
       <button
         onClick={payNow}
-        disabled={state === "sending" || state === "waiting"}
+        disabled={busy || !amountValid || !payPhone.trim()}
         className="btn btn-primary w-full py-[11px] text-[13.5px] disabled:opacity-60"
       >
         {state === "sending" ? "Sending prompt…"
           : state === "waiting" ? "Waiting for PIN…"
-          : `Pay with M-Pesa · ${kes(order.total_kes)}`}
+          : `Pay with M-Pesa · ${amountValid ? kes(amt) : kes(balanceKes)}`}
       </button>
       {msg && (
         <div className="text-[12px] font-[600] px-3 py-2 rounded-[10px]"
@@ -182,12 +194,14 @@ function PayNow({ order, phone, onPaid }: { order: TrackedOrder; phone: string; 
 }
 
 function OrderCard({ order, phone }: { order: TrackedOrder; phone: string }) {
-  const [paid, setPaid] = useState(false);
-  const displayStatus = paid ? "paid" : order.status;
+  const [paidKes, setPaidKes] = useState<number>(order.paid_kes ?? 0);
+  const balance = Math.max(0, order.total_kes - paidKes);
+  const fullyPaid = balance <= 0;
+  const displayStatus = fullyPaid && PAYABLE_STATUSES.has(order.status) ? "paid" : order.status;
   const date = new Date(order.created_at).toLocaleDateString("en-KE", {
     day: "numeric", month: "short", year: "numeric",
   });
-  const canPay = !paid && PAYABLE_STATUSES.has(order.status) && !!phone.trim();
+  const canPay = !fullyPaid && PAYABLE_STATUSES.has(order.status);
 
   return (
     <div className="mm-card rounded-[18px] overflow-hidden mm-shadow">
@@ -222,17 +236,33 @@ function OrderCard({ order, phone }: { order: TrackedOrder; phone: string }) {
       </div>
 
       {/* Footer */}
-      <div className="px-4 py-2.5 border-t flex justify-between text-[12px]" style={{ borderColor: "#ebe2d2" }}>
-        {order.delivery_kes > 0 ? (
-          <span className="mm-muted">Delivery: {kes(order.delivery_kes)}</span>
-        ) : (
-          <span className="mm-muted">Free delivery</span>
+      <div className="px-4 py-2.5 border-t text-[12px]" style={{ borderColor: "#ebe2d2" }}>
+        <div className="flex justify-between">
+          {order.delivery_kes > 0 ? (
+            <span className="mm-muted">Delivery: {kes(order.delivery_kes)}</span>
+          ) : (
+            <span className="mm-muted">Free delivery</span>
+          )}
+          <span className="font-[700] text-[13px]">Total: {kes(order.total_kes)}</span>
+        </div>
+        {paidKes > 0 && !fullyPaid && (
+          <div className="flex justify-between mt-1 pt-1 border-t" style={{ borderColor: "#f0e7d6" }}>
+            <span style={{ color: "#15803d" }}>Paid: {kes(paidKes)}</span>
+            <span className="font-[700]" style={{ color: "#B84A32" }}>Balance: {kes(balance)}</span>
+          </div>
         )}
-        <span className="font-[700] text-[13px]">Total: {kes(order.total_kes)}</span>
       </div>
 
-      {/* Self-service payment */}
-      {canPay && <PayNow order={order} phone={phone} onPaid={() => setPaid(true)} />}
+      {/* Self-service payment — remounts per partial payment to reset the amount */}
+      {canPay && (
+        <PayNow
+          key={paidKes}
+          order={order}
+          defaultPhone={phone}
+          balanceKes={balance}
+          onPaid={(amt) => setPaidKes(p => p + amt)}
+        />
+      )}
     </div>
   );
 }

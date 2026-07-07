@@ -116,34 +116,57 @@ export async function POST(req: NextRequest) {
     }
 
     if (success) {
-      // Atomic settle: one statement (neon-http has no interactive tx). The
-      // guarded UPDATE only fires from initiated/pending, so a duplicate
-      // callback settles zero rows and the CTE is a no-op.
+      // Atomic settle supporting partial payments: one statement (neon-http
+      // has no interactive tx). The guarded UPDATE only fires from
+      // initiated/pending, so a duplicate callback settles zero rows.
+      //
+      // Note the Postgres CTE rule: the `settled` UPDATE's change is NOT
+      // visible to sibling reads of the same table, so the running total is
+      // (sum of OTHER successful attempts) + this attempt's amount. The order
+      // flips to 'paid' only once that total covers the order total.
+      const receiptStr = receipt ?? "N/A";
       const settled = (await db.execute(sql`
         WITH settled AS (
           UPDATE payment.payment_attempts
           SET status = 'success', provider_reference = ${receipt ?? null},
               failure_reason = NULL, raw_response = ${rawResponse}::jsonb, updated_at = now()
           WHERE id = ${payment.id} AND status IN ('initiated', 'pending')
-          RETURNING order_id
+          RETURNING order_id, amount_minor
+        ),
+        calc AS (
+          SELECT s.order_id,
+                 o.total_minor,
+                 COALESCE((
+                   SELECT SUM(pa.amount_minor) FROM payment.payment_attempts pa
+                   WHERE pa.order_id = s.order_id AND pa.status = 'success'
+                 ), 0) + s.amount_minor AS paid_minor
+          FROM settled s JOIN commerce.orders o ON o.id = s.order_id
         ),
         ord AS (
-          UPDATE commerce.orders
-          SET status = 'paid', payment_status = 'paid'
-          WHERE id IN (SELECT order_id FROM settled)
-          RETURNING id
+          UPDATE commerce.orders o
+          SET status = CASE WHEN c.paid_minor >= c.total_minor THEN 'paid' ELSE o.status END,
+              payment_status = CASE WHEN c.paid_minor >= c.total_minor THEN 'paid' ELSE 'pending' END
+          FROM calc c WHERE o.id = c.order_id
+          RETURNING o.id
         )
         INSERT INTO commerce.order_status_history (order_id, from_status, to_status, changed_by_type, notes)
-        SELECT order_id, 'pending_payment', 'paid', 'system', ${`M-Pesa payment success. Receipt: ${receipt ?? "N/A"}`}
-        FROM settled
-        RETURNING order_id
+        SELECT c.order_id, 'pending_payment',
+               CASE WHEN c.paid_minor >= c.total_minor THEN 'paid' ELSE 'pending_payment' END,
+               'system',
+               CASE WHEN c.paid_minor >= c.total_minor
+                    THEN 'M-Pesa payment complete. Receipt: ' || ${receiptStr}
+                    ELSE 'M-Pesa partial payment: KES ' || (c.paid_minor/100)::text || ' of ' || (c.total_minor/100)::text || '. Receipt: ' || ${receiptStr}
+               END
+        FROM calc c
+        RETURNING order_id, to_status
       `)).rows;
 
       if (settled.length === 0) {
         console.warn("[mpesa/callback] Already settled — duplicate callback ignored");
         return ack();
       }
-      console.log("[mpesa/callback] SUCCESS - receipt:", receipt, "order:", payment.order_id);
+      const fullyPaid = settled[0].to_status === "paid";
+      console.log(`[mpesa/callback] ${fullyPaid ? "PAID IN FULL" : "PARTIAL"} - receipt:`, receipt, "order:", payment.order_id);
     } else {
       const status = resultCodeToStatus(cb.ResultCode);
       const failureReason = reason ?? resultCodeReason(cb.ResultCode, cb.ResultDesc);

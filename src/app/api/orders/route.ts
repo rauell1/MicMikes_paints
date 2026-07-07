@@ -34,6 +34,10 @@ export async function GET(req: NextRequest) {
           addr.county_code AS "county",
           addr.locality AS "town",
           o.order_number AS "reference",
+          COALESCE((
+            SELECT SUM(pa.amount_minor) FROM payment.payment_attempts pa
+            WHERE pa.order_id = o.id AND pa.status = 'success'
+          ), 0) / 100 AS "paid_kes",
           (
             SELECT json_agg(json_build_object(
               'productSlug', p.slug,
@@ -67,6 +71,10 @@ export async function GET(req: NextRequest) {
           addr.county_code AS "county",
           addr.locality AS "town",
           o.order_number AS "reference",
+          COALESCE((
+            SELECT SUM(pa.amount_minor) FROM payment.payment_attempts pa
+            WHERE pa.order_id = o.id AND pa.status = 'success'
+          ), 0) / 100 AS "paid_kes",
           (
             SELECT json_agg(json_build_object(
               'productSlug', p.slug,

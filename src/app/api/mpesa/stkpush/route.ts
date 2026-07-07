@@ -115,16 +115,30 @@ export async function POST(req: NextRequest) {
     try { normalisedPhone = normalisePhone(String(phone)); }
     catch (err: any) { return NextResponse.json({ error: err.message }, { status: 400 }); }
 
-    // Fetch order
+    // Fetch order + how much has already been paid (sum of successful
+    // attempts). Partial payments are allowed: a caller may pay any amount up
+    // to the outstanding balance, and the order is only completed once the
+    // successful attempts sum to the total (handled in the callback).
     const orders = (await db.execute(sql`
-      SELECT id, total_minor FROM commerce.orders WHERE id = ${orderId} LIMIT 1
+      SELECT o.total_minor,
+             COALESCE((
+               SELECT SUM(pa.amount_minor) FROM payment.payment_attempts pa
+               WHERE pa.order_id = o.id AND pa.status = 'success'
+             ), 0) AS paid_minor
+      FROM commerce.orders o WHERE o.id = ${orderId} LIMIT 1
     `)).rows;
 
     if (orders.length === 0) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
-    if (Number(orders[0].total_minor) !== amountMinor) {
-      return NextResponse.json({ error: `Amount mismatch: order total is KES ${Number(orders[0].total_minor) / 100}, got KES ${amount}` }, { status: 400 });
+    const totalMinor = Number(orders[0].total_minor);
+    const paidMinor = Number(orders[0].paid_minor);
+    const remainingMinor = totalMinor - paidMinor;
+    if (remainingMinor <= 0) {
+      return NextResponse.json({ error: "This order is already fully paid." }, { status: 400 });
+    }
+    if (amountMinor > remainingMinor) {
+      return NextResponse.json({ error: `Amount exceeds the outstanding balance of KES ${remainingMinor / 100}.` }, { status: 400 });
     }
 
     const isProd = process.env.MPESA_ENVIRONMENT === "production";

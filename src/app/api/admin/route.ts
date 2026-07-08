@@ -3,6 +3,7 @@ import { db } from "@/server/db/client";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
 import { cookies } from "next/headers";
+import { releaseReservations, commitReservations } from "@/server/inventory";
 
 const COOKIE = "mm-admin-token";
 const cookieOpts = "HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=86400";
@@ -280,7 +281,25 @@ export async function GET(req: NextRequest) {
 
     /* ── 9. ORDERS & UNRESOLVED TABS ── */
     if (resource === "orders" || resource === "unresolved") {
-      // Automatically delete unresolved orders older than 30 days
+      // Automatically delete unresolved orders older than 30 days. Release
+      // any stock they were holding back to availability FIRST (order_items
+      // are cascade-deleted with the order, so this must run before the DELETE).
+      await db.execute(sql`
+        WITH doomed AS (
+          SELECT id FROM commerce.orders
+          WHERE status = 'pending_payment' AND placed_at < now() - INTERVAL '30 days'
+        ),
+        to_release AS (
+          SELECT oi.variant_id, SUM(oi.reserved_qty)::int AS qty
+          FROM commerce.order_items oi JOIN doomed d ON d.id = oi.order_id
+          WHERE oi.reserved_qty > 0
+          GROUP BY oi.variant_id
+        )
+        UPDATE catalog.inventory_items ii
+        SET reserved_qty = GREATEST(0, ii.reserved_qty - t.qty), updated_at = now()
+        FROM to_release t
+        WHERE ii.variant_id = t.variant_id
+      `);
       await db.execute(sql`
         DELETE FROM commerce.orders
         WHERE status = 'pending_payment' AND placed_at < now() - INTERVAL '30 days'
@@ -642,6 +661,15 @@ export async function PUT(req: NextRequest) {
         INSERT INTO commerce.order_status_history (order_id, from_status, to_status, changed_by_type, notes)
         VALUES (${id}, ${prevStatus || null}, ${status}, 'staff', 'Status updated by admin')
       `);
+
+      // Inventory lifecycle: cancelling/refunding returns held stock to
+      // availability; delivering commits it (goods leave on-hand). Both are
+      // idempotent, so re-saving the same status does nothing.
+      if (status === "cancelled" || status === "refunded") {
+        await releaseReservations(id);
+      } else if (status === "delivered") {
+        await commitReservations(id);
+      }
 
       return NextResponse.json(row);
     }

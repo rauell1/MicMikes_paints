@@ -335,10 +335,11 @@ export async function POST(req: NextRequest) {
       await db.execute(sql`
         INSERT INTO commerce.order_items
           (order_id, variant_id, product_name, shade_name, finish_name, pack_size_ml, vendor_sku,
-           quantity, unit_price_minor, line_discount_minor, tax_minor, line_total_minor)
+           quantity, unit_price_minor, line_discount_minor, tax_minor, line_total_minor, reserved_qty)
         VALUES
           (${orderUuid}, ${item.variantId}, ${item.productName}, ${item.shadeName}, ${item.finish}, ${item.sizeMl}, ${item.sku},
-           ${item.quantity}, ${item.unitPriceMinor}, 0, 0, ${item.unitPriceMinor * item.quantity})
+           ${item.quantity}, ${item.unitPriceMinor}, 0, 0, ${item.unitPriceMinor * item.quantity},
+           ${item.enforced ? item.quantity : 0})
       `);
     }
 

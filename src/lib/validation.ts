@@ -69,6 +69,10 @@ export const orderFormSchema = z.object({
   latitude:  z.number().optional().nullable(),
   longitude: z.number().optional().nullable(),
 
+  agreedToTerms: z.boolean().refine(val => val === true, 'You must agree to the terms of service and privacy policy to proceed'),
+  marketingOptIn: z.boolean().optional(),
+  analyticsConsent: z.boolean().optional(),
+
   items: z.array(
     z.object({
       productSlug: z.string().min(1).max(100),

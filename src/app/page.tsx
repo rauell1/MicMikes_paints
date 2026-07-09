@@ -180,6 +180,9 @@ function CheckoutDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [mpesaStatus, setMpesaStatus] = useState<"idle"|"pending"|"success"|"failed">("idle");
+  const [agreedToTerms, setAgreedToTerms]       = useState(false);
+  const [marketingOptIn, setMarketingOptIn]     = useState(false);
+  const [analyticsConsent, setAnalyticsConsent] = useState(false);
 
   // Geolocation & Delivery Zones states
   const [deliveryZones, setDeliveryZones] = useState<{ county: string; town: string | null; rate_kes: number }[]>([]);
@@ -262,6 +265,10 @@ function CheckoutDialog({
       setError("Please enter a valid email address.");
       return false;
     }
+    if (!agreedToTerms) {
+      setError("You must agree to the Terms of Service and Privacy Policy to proceed.");
+      return false;
+    }
     setError("");
     return true;
   };
@@ -280,7 +287,7 @@ function CheckoutDialog({
       const orderRes = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, phone, county, town, address, notes, payMethod, items, latitude, longitude }),
+        body: JSON.stringify({ name, email, phone, county, town, address, notes, payMethod, items, latitude, longitude, agreedToTerms, marketingOptIn, analyticsConsent }),
       });
 
       if (!orderRes.ok) {
@@ -415,6 +422,29 @@ function CheckoutDialog({
               </div>
 
               <div><label className="text-[12px] font-[600] block mb-[5px]">Notes (optional)</label><textarea className="input" rows={2} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Gate colour, special instructions…" style={{ resize: "none" }} /></div>
+
+              <div className="space-y-3 mt-4 pt-3 border-t border-[#ebe2d2]">
+                <label className="flex items-start gap-2.5 text-[12px] cursor-pointer font-[500]">
+                  <input type="checkbox" checked={agreedToTerms} onChange={e=>setAgreedToTerms(e.target.checked)} className="mt-0.5 rounded border-[#e2d3b7] text-[#B84A32] focus:ring-[#B84A32] w-4 h-4 cursor-pointer" />
+                  <span className="leading-snug text-graphite">
+                    I agree to the <a href="/terms" target="_blank" className="text-[#B84A32] font-[700] hover:underline">Terms of Service</a> and <a href="/privacy" target="_blank" className="text-[#B84A32] font-[700] hover:underline">Privacy Policy</a>, and consent to the processing of my details under the Kenya Data Protection Act. *
+                  </span>
+                </label>
+
+                <label className="flex items-start gap-2.5 text-[12px] cursor-pointer font-[500]">
+                  <input type="checkbox" checked={marketingOptIn} onChange={e=>setMarketingOptIn(e.target.checked)} className="mt-0.5 rounded border-[#e2d3b7] text-[#B84A32] focus:ring-[#B84A32] w-4 h-4 cursor-pointer" />
+                  <span className="leading-snug mm-muted">
+                    Yes, I consent to receiving updates on new shades and promotions via SMS or email.
+                  </span>
+                </label>
+
+                <label className="flex items-start gap-2.5 text-[12px] cursor-pointer font-[500]">
+                  <input type="checkbox" checked={analyticsConsent} onChange={e=>setAnalyticsConsent(e.target.checked)} className="mt-0.5 rounded border-[#e2d3b7] text-[#B84A32] focus:ring-[#B84A32] w-4 h-4 cursor-pointer" />
+                  <span className="leading-snug mm-muted">
+                    I consent to performance and analytics cookie tracking to improve my experience.
+                  </span>
+                </label>
+              </div>
             </div>
           )}
 
@@ -530,6 +560,16 @@ export default function Home() {
   const navLockRef = useRef(false);
 
   const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(""), 2100); };
+
+  const [showCookieBanner, setShowCookieBanner] = useState(false);
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const consent = localStorage.getItem("micmikes-privacy-consent");
+      if (!consent) {
+        setShowCookieBanner(true);
+      }
+    }
+  }, []);
 
   const [vizRoomIdx, setVizRoomIdx] = useState(0);
   const [vizColourId, setVizColourId] = useState<string | null>(null);
@@ -1024,7 +1064,7 @@ export default function Home() {
       <ScrollToTop />
       <ChatWidget />
 
-      <footer className="hidden lg:block border-t mt-8" style={{ borderColor: "#e8dcc7", background: "#F8F4EF" }}>
+      <footer className="border-t mt-8 pb-[84px] lg:pb-8" style={{ borderColor: "#e8dcc7", background: "#F8F4EF" }}>
         <div className="max-w-7xl mx-auto px-8 py-8 flex flex-wrap items-center justify-between gap-4 text-[13px]" style={{ color: "#7b7468" }}>
           <div className="flex items-center gap-2">
             <span className="font-display text-[15px] font-bold" style={{ color: "#2B2B2E" }}>MicMikes Paints</span>
@@ -1037,9 +1077,53 @@ export default function Home() {
             </a>
             <span>✔ M-Pesa</span><span>·</span><span>✔ Free Delivery</span><span>·</span><span>✔ 20 Colours</span>
           </div>
-          <div>© {new Date().getFullYear()} MicMikes Paints</div>
+          <div className="flex flex-wrap items-center gap-3 mt-1 sm:mt-0">
+            <span>© {new Date().getFullYear()} MicMikes Paints</span>
+            <span>·</span>
+            <a href="/privacy" className="hover:underline transition-all text-[#7b7468] font-[600]">Privacy Policy</a>
+            <span>·</span>
+            <a href="/terms" className="hover:underline transition-all text-[#7b7468] font-[600]">Terms of Service</a>
+          </div>
         </div>
       </footer>
+
+      {showCookieBanner && (
+        <div className="fixed bottom-[80px] lg:bottom-6 left-4 right-4 lg:left-auto lg:right-6 lg:max-w-[400px] z-[90] p-5 rounded-[20px] border flex flex-col gap-3 fade mm-shadow"
+          style={{ background: "#ffffff", borderColor: "#e8dcc7" }}>
+          <div className="flex items-start gap-3">
+            <span className="text-2xl mt-0.5">🍪</span>
+            <div>
+              <div className="font-display text-[16px] font-bold text-graphite">Cookie & Privacy Notice</div>
+              <p className="text-[12.5px] mm-muted leading-relaxed mt-1">
+                We collect personal data to process payments (M-Pesa) and arrange delivery in compliance with the Kenya Data Protection Act.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2.5 mt-1">
+            <button 
+              onClick={() => {
+                localStorage.setItem("micmikes-privacy-consent", "all");
+                setShowCookieBanner(false);
+              }} 
+              className="btn btn-primary flex-1 py-2 text-[12.5px]"
+            >
+              Accept All
+            </button>
+            <button 
+              onClick={() => {
+                localStorage.setItem("micmikes-privacy-consent", "essential");
+                setShowCookieBanner(false);
+              }} 
+              className="btn btn-ghost flex-1 py-2 text-[12.5px]"
+            >
+              Essential Only
+            </button>
+          </div>
+          <div className="text-center">
+            <a href="/privacy" className="text-[11px] text-[#B84A32] font-[600] hover:underline">Read Our Privacy Policy</a>
+          </div>
+        </div>
+      )}
 
       <Analytics />
     </div>

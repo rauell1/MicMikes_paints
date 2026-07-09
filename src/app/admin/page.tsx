@@ -11,7 +11,7 @@ type AdminOrder   = { id: string; name: string; email: string; phone: string; co
 type AdminOrderItem = { product_slug: string; product_name?: string; colour_name: string; colour_hex: string; size: string; finish: string; quantity: number; unit_kes: number };
 type DeliveryRate = { id: string; county: string; town: string | null; rate_kes: number; updated_at: string };
 type StockEntry  = { id: string; product_id: string; product_name: string; product_slug: string; size: string; colour_id: string | null; colour_name: string | null; stock: number; low_stock_threshold: number };
-type CustomerRow = { id: string; name: string; email: string; phone: string; county: string; town: string; order_count: number; total_spent_kes: number; last_order_at: string };
+type CustomerRow = { id: string; name: string; email: string; phone: string; county: string; town: string; order_count: number; total_spent_kes: number; last_order_at: string; status: string; marketing_opt_in: boolean; analytics_consent: boolean; data_export_requested_at: string | null; deletion_requested_at: string | null };
 
 type DashboardData = {
   revenue: { today: number; this_week: number; this_month: number; all_time: number; total_orders: number; avg_order_value: number };
@@ -1499,6 +1499,11 @@ function CustomersTab({ showToast }: { showToast: (m:string) => void }) {
       Phone: c.phone,
       County: c.county,
       Town: c.town,
+      Status: c.status,
+      Marketing_Opt_In: c.marketing_opt_in ? "Yes" : "No",
+      Analytics_Consent: c.analytics_consent ? "Yes" : "No",
+      Data_Export_Requested_At: c.data_export_requested_at || "None",
+      Deletion_Requested_At: c.deletion_requested_at || "None",
       Order_Count: c.order_count,
       Total_Spent_KES: c.total_spent_kes,
       Last_Order_At: c.last_order_at,
@@ -1536,7 +1541,26 @@ function CustomersTab({ showToast }: { showToast: (m:string) => void }) {
             {filtered.map(c => (
               <tr key={c.id} className="hover:bg-[#fcfaf7] transition">
                 <td className="px-6 py-3">
-                  <div className="font-[600]">{c.name || <span className="text-[#9b9589] italic">Guest buyer</span>}</div>
+                  <div className="font-[600] flex items-center gap-2">
+                    {c.name || <span className="text-[#9b9589] italic">Guest buyer</span>}
+                    {c.status === "disabled" && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-bold">Disabled</span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                    {c.marketing_opt_in && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#fdf2f0] text-[#B84A32] font-semibold border border-[#fbdcd5]" title="Consent to Marketing updates">✉ Marketing</span>
+                    )}
+                    {c.analytics_consent && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#f0faf8] text-[#4FB9B0] font-semibold border border-[#d6f2ed]" title="Consent to Analytics cookie tracking">📊 Analytics</span>
+                    )}
+                    {c.deletion_requested_at && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-bold" title={`Request date: ${new Date(c.deletion_requested_at).toLocaleDateString()}`}>⚠️ Erasure Requested</span>
+                    )}
+                    {c.data_export_requested_at && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-bold" title={`Request date: ${new Date(c.data_export_requested_at).toLocaleDateString()}`}>📥 Export Requested</span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-6 py-3">
                   <div className="font-mono text-[12px]">{c.phone}</div>

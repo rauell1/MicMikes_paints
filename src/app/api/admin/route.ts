@@ -186,6 +186,11 @@ export async function GET(req: NextRequest) {
           c.full_name AS name,
           c.email,
           c.phone_e164 AS phone,
+          c.status,
+          c.marketing_opt_in AS marketing_opt_in,
+          c.analytics_consent AS analytics_consent,
+          c.data_export_requested_at AS data_export_requested_at,
+          c.deletion_requested_at AS deletion_requested_at,
           MAX(addr.county_code) AS county,
           MAX(addr.locality) AS town,
           COUNT(o.id)::int AS order_count,
@@ -194,7 +199,7 @@ export async function GET(req: NextRequest) {
         FROM customer.customers c
         LEFT JOIN customer.addresses addr ON addr.customer_id = c.id
         LEFT JOIN commerce.orders o ON o.customer_id = c.id
-        GROUP BY c.id, c.full_name, c.email, c.phone_e164
+        GROUP BY c.id, c.full_name, c.email, c.phone_e164, c.status, c.marketing_opt_in, c.analytics_consent, c.data_export_requested_at, c.deletion_requested_at
         ORDER BY total_spent_kes DESC
         LIMIT 500
       `);

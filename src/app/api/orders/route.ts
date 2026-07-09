@@ -150,6 +150,8 @@ export async function POST(req: NextRequest) {
     const items   = data.items;
     const latitude  = data.latitude ? Number(data.latitude) : null;
     const longitude = data.longitude ? Number(data.longitude) : null;
+    const marketingOptIn = data.marketingOptIn ?? false;
+    const analyticsConsent = data.analyticsConsent ?? false;
 
     /* ── 1. Create or Find Customer ── */
     let customerId: string;
@@ -165,13 +167,15 @@ export async function POST(req: NextRequest) {
         UPDATE customer.customers
         SET full_name = COALESCE(NULLIF(${name}, ''), full_name),
             phone_e164 = COALESCE(NULLIF(${phone}, ''), phone_e164),
+            marketing_opt_in = ${marketingOptIn},
+            analytics_consent = ${analyticsConsent},
             updated_at = now()
         WHERE id = ${customerId}
       `);
     } else {
       const inserted = (await db.execute(sql`
-        INSERT INTO customer.customers (email, phone_e164, full_name, status)
-        VALUES (${email}, ${phone}, ${name}, 'active')
+        INSERT INTO customer.customers (email, phone_e164, full_name, status, marketing_opt_in, analytics_consent)
+        VALUES (${email}, ${phone}, ${name}, 'active', ${marketingOptIn}, ${analyticsConsent})
         RETURNING id
       `)).rows;
       customerId = inserted[0].id as string;

@@ -153,43 +153,7 @@ export async function POST(req: NextRequest) {
     const marketingOptIn = data.marketingOptIn ?? false;
     const analyticsConsent = data.analyticsConsent ?? false;
 
-    /* ── 1. Create or Find Customer ── */
-    let customerId: string;
-    const existing = (await db.execute(sql`
-      SELECT id FROM customer.customers
-      WHERE email = ${email} OR phone_e164 = ${phone}
-      LIMIT 1
-    `)).rows;
-
-    if (existing.length > 0) {
-      customerId = existing[0].id as string;
-      await db.execute(sql`
-        UPDATE customer.customers
-        SET full_name = COALESCE(NULLIF(${name}, ''), full_name),
-            phone_e164 = COALESCE(NULLIF(${phone}, ''), phone_e164),
-            marketing_opt_in = ${marketingOptIn},
-            analytics_consent = ${analyticsConsent},
-            updated_at = now()
-        WHERE id = ${customerId}
-      `);
-    } else {
-      const inserted = (await db.execute(sql`
-        INSERT INTO customer.customers (email, phone_e164, full_name, status, marketing_opt_in, analytics_consent)
-        VALUES (${email}, ${phone}, ${name}, 'active', ${marketingOptIn}, ${analyticsConsent})
-        RETURNING id
-      `)).rows;
-      customerId = inserted[0].id as string;
-    }
-
-    /* ── 2. Create Shipping Address ── */
-    const addrRow = (await db.execute(sql`
-      INSERT INTO customer.addresses (customer_id, recipient_name, recipient_phone_e164, county_code, locality, estate, latitude, longitude, is_default)
-      VALUES (${customerId}, ${name}, ${phone}, ${county}, ${town}, ${address}, ${latitude}, ${longitude}, true)
-      RETURNING id
-    `)).rows;
-    const addressId = addrRow[0].id as string;
-
-    /* ── 3. Look up Delivery Fee ── */
+    /* ── 1. Look up Delivery Fee (read-only) ── */
     let deliveryFeeMinor = DEFAULT_DELIVERY_FEE_MINOR;
     const rateRows = (await db.execute(sql`
       SELECT base_fee_minor FROM delivery.delivery_zones
@@ -283,6 +247,15 @@ export async function POST(req: NextRequest) {
        a multi-item order is out of stock, the reservations already made in
        this request are released (compensation) before failing. ── */
     const reserved: { variantId: string; qty: number }[] = [];
+    const releaseHeld = async () => {
+      for (const r of reserved) {
+        await db.execute(sql`
+          UPDATE catalog.inventory_items
+          SET reserved_qty = GREATEST(0, reserved_qty - ${r.qty}), updated_at = now()
+          WHERE variant_id = ${r.variantId}
+        `);
+      }
+    };
     for (const it of verified) {
       if (!it.enforced) continue;
       const got = (await db.execute(sql`
@@ -294,13 +267,7 @@ export async function POST(req: NextRequest) {
       `)).rows;
 
       if (got.length === 0) {
-        for (const r of reserved) {
-          await db.execute(sql`
-            UPDATE catalog.inventory_items
-            SET reserved_qty = GREATEST(0, reserved_qty - ${r.qty}), updated_at = now()
-            WHERE variant_id = ${r.variantId}
-          `);
-        }
+        await releaseHeld();
         return NextResponse.json(
           { error: `Sorry, "${it.productName}" just sold out. Please update your cart and try again.`, soldOutVariantId: it.variantId },
           { status: 409 }
@@ -308,6 +275,47 @@ export async function POST(req: NextRequest) {
       }
       reserved.push({ variantId: it.variantId, qty: it.quantity });
     }
+
+    // Reservation succeeded. Everything below is a write; wrap it so any
+    // failure releases the held stock — a failed order never leaks a hold,
+    // and a sold-out/invalid attempt (handled above) never created a customer,
+    // address, or order row.
+    try {
+    /* ── Create or find customer ── */
+    let customerId: string;
+    const existing = (await db.execute(sql`
+      SELECT id FROM customer.customers
+      WHERE email = ${email} OR phone_e164 = ${phone}
+      LIMIT 1
+    `)).rows;
+
+    if (existing.length > 0) {
+      customerId = existing[0].id as string;
+      await db.execute(sql`
+        UPDATE customer.customers
+        SET full_name = COALESCE(NULLIF(${name}, ''), full_name),
+            phone_e164 = COALESCE(NULLIF(${phone}, ''), phone_e164),
+            marketing_opt_in = ${marketingOptIn},
+            analytics_consent = ${analyticsConsent},
+            updated_at = now()
+        WHERE id = ${customerId}
+      `);
+    } else {
+      const inserted = (await db.execute(sql`
+        INSERT INTO customer.customers (email, phone_e164, full_name, status, marketing_opt_in, analytics_consent)
+        VALUES (${email}, ${phone}, ${name}, 'active', ${marketingOptIn}, ${analyticsConsent})
+        RETURNING id
+      `)).rows;
+      customerId = inserted[0].id as string;
+    }
+
+    /* ── Create shipping address ── */
+    const addrRow = (await db.execute(sql`
+      INSERT INTO customer.addresses (customer_id, recipient_name, recipient_phone_e164, county_code, locality, estate, latitude, longitude, is_default)
+      VALUES (${customerId}, ${name}, ${phone}, ${county}, ${town}, ${address}, ${latitude}, ${longitude}, true)
+      RETURNING id
+    `)).rows;
+    const addressId = addrRow[0].id as string;
 
     const subtotalMinor = verified.reduce((s, i) => s + i.unitPriceMinor * i.quantity, 0);
     const totalMinor    = subtotalMinor + deliveryFeeMinor;
@@ -360,6 +368,13 @@ export async function POST(req: NextRequest) {
       deliveryKes: deliveryFeeMinor / 100,
       totalKes: totalMinor / 100,
     }, { status: 201 });
+
+    } catch (inner) {
+      // A write failed after stock was reserved — release the hold, then let
+      // the outer handler return the 500.
+      await releaseHeld();
+      throw inner;
+    }
 
   } catch (err) {
     console.error("[api/orders] Checkout failed:", err);

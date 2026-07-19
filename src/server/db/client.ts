@@ -1,5 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
+import * as auth from "./schema/auth";
 import * as iam from "./schema/iam";
 import * as vendor from "./schema/vendor";
 import * as catalog from "./schema/catalog";
@@ -13,6 +14,7 @@ import * as integration from "./schema/integration";
 import * as regulatory from "./schema/regulatory";
 
 const schema = {
+  ...auth,
   ...iam,
   ...vendor,
   ...catalog,

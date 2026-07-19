@@ -12,7 +12,11 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
   },
-  // Ensure we use cookie-based sessions
+  advanced: {
+    database: {
+      generateId: () => crypto.randomUUID(),
+    },
+  },
   session: {
     cookieCache: {
       enabled: true,

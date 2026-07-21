@@ -422,10 +422,6 @@ function CheckoutDialog({
               <div><label className="text-[12px] font-[600] block mb-[5px]">Full name *</label><input className="input" value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Jane Wanjiku" /></div>
               <div><label className="text-[12px] font-[600] block mb-[5px]">Email *</label><input className="input" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="jane@example.com" /></div>
               <div><label className="text-[12px] font-[600] block mb-[5px]">Phone (M-Pesa) *</label><input className="input" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="07xx xxx xxx" type="tel" /></div>
-              <div className="bg-[#f0fdf4] border border-[#bbf7d0] p-4 rounded-[16px] text-[13px] text-[#15803d] font-medium my-3">
-                🏪 <strong>Sales Point Only:</strong> All orders are prepared for showroom/factory collection. No delivery options are currently active.
-              </div>
-
               <div><label className="text-[12px] font-[600] block mb-[5px]">Notes (optional)</label><textarea className="input" rows={2} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Gate colour, special instructions…" style={{ resize: "none" }} /></div>
 
               <div className="space-y-3 mt-4 pt-3 border-t border-[#ebe2d2]">
@@ -466,7 +462,6 @@ function CheckoutDialog({
               </div>
               <div className="mm-card rounded-[14px] p-4 space-y-[6px] text-[13px]">
                 <div className="flex justify-between"><span className="mm-muted">Subtotal</span><span className="font-[600]">{kes(subtotal)}</span></div>
-                <div className="flex justify-between mm-muted"><span>Delivery</span><span>{deliveryFee === 0 ? "Free" : kes(deliveryFee)}</span></div>
                 <div className="flex justify-between text-[15px] font-[700] pt-2 border-t" style={{ borderColor: "#eadcc4" }}><span>Total</span><span>{kes(checkoutTotal)}</span></div>
               </div>
             </div>
@@ -482,7 +477,6 @@ function CheckoutDialog({
                     <span className="font-[600] flex-shrink-0">{kes(i.unitKes * i.quantity)}</span>
                   </div>
                 ))}
-                <div className="flex justify-between mm-muted text-[13px]"><span>Delivery</span><span>{deliveryFee === 0 ? "Free" : kes(deliveryFee)}</span></div>
                 <div className="flex justify-between font-[700] text-[15px] pt-2 border-t" style={{ borderColor: "#eadcc4" }}><span>Total</span><span>{kes(checkoutTotal)}</span></div>
               </div>
               <div className="mm-card rounded-[14px] p-4 space-y-[5px]">
@@ -1135,8 +1129,6 @@ export default function Home() {
       <div className="w-full text-[11.5px] sm:text-[12.5px] tracking-wide" style={{ backgroundColor: "#2B2B2E", color: "#F8F4EF" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-8 py-[10px] flex items-center justify-center gap-4 text-center">
           <span className="font-tag text-[15px] sm:text-[16px] italic">Bring Walls to Life — Colour That Lasts. Style That Inspires.</span>
-          <span className="hidden sm:inline opacity-90">•</span>
-          <span className="font-mono2 text-[11px] hidden sm:inline">🎉 Free delivery on all orders</span>
         </div>
       </div>
 
@@ -1185,13 +1177,13 @@ export default function Home() {
                 <div className="inline-flex items-center gap-2 text-[11px] font-mono2 px-3 py-[6px] rounded-full mb-4 bg-white border" style={{ borderColor: "#e7d7be", color: "#B84A32" }}>KEEKOROK EDITION • NAIROBI • KES</div>
                 <h1 className="font-display text-[40px] sm:text-[56px] md:text-[64px] leading-[0.95] tracking-[-0.017em] text-graphite">Bring Walls<br/>to Life</h1>
                 <p className="font-tag text-[22px] sm:text-[26px] mt-3" style={{ color: "#5d5850" }}>Colour That Lasts. Style That Inspires.</p>
-                <p className="max-w-[520px] text-[15.5px] leading-relaxed mm-muted mt-5">Keekorok paint system — 20 curated Kenyan shades, M-Pesa checkout, free delivery on all orders. Premium emulsion, eggshell, satin &amp; semi-gloss.</p>
+                <p className="max-w-[520px] text-[15.5px] leading-relaxed mm-muted mt-5">Keekorok paint system — 20 curated Kenyan shades, M-Pesa checkout. Premium emulsion, eggshell, satin &amp; semi-gloss.</p>
                 <div className="flex flex-wrap gap-3 mt-7">
                   <button onClick={() => navigate("colours")} className="btn btn-primary px-[22px] py-[13px] text-[14.5px]">Find Your Perfect Shade →</button>
                   <button onClick={() => navigate("visualizer")} className="btn btn-ghost px-[22px] py-[13px] text-[14.5px]">Open Visualizer</button>
                 </div>
                 <div className="flex flex-wrap gap-x-6 gap-y-2 text-[12px] font-mono2 mt-5" style={{ color: "#7c756a" }}>
-                  <span>✔ M-Pesa STK</span><span>✔ KES pricing</span><span>✔ Free delivery</span><span>✔ 20 Keekorok colours</span>
+                  <span>✔ M-Pesa STK</span><span>✔ KES pricing</span><span>✔ 20 Keekorok colours</span>
                 </div>
               </div>
               <div className="lg:col-span-6">
@@ -1332,7 +1324,7 @@ export default function Home() {
           <div className="max-w-7xl mx-auto px-4 sm:px-8">
             <div className="max-w-[760px] mb-6">
               <h2 className="font-display text-[30px] sm:text-[36px] text-graphite font-bold">Shop</h2>
-              <p className="mm-muted mt-2">Premium Keekorok paints, primers &amp; supplies. M-Pesa checkout. Free delivery on all orders.</p>
+              <p className="mm-muted mt-2">Premium Keekorok paints, primers &amp; supplies. M-Pesa checkout.</p>
             </div>
 
             {/* Trust strip */}
@@ -1362,17 +1354,7 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center bg-teal-50 text-teal-700 flex-shrink-0">
-                  <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
-                  </svg>
-                </div>
-                <div>
-                  <div className="font-[700] text-[13px] text-graphite">Free Delivery</div>
-                  <div className="text-[11px] mm-muted">Nairobi orders over 15K</div>
-                </div>
-              </div>
+
 
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full flex items-center justify-center bg-[#B84A32]/10 text-[#B84A32] flex-shrink-0">
@@ -1581,7 +1563,6 @@ export default function Home() {
             {cart.length > 0 && (
               <div className="px-6 py-5 border-t space-y-3" style={{ borderColor: "#e7d9c3" }}>
                 <div className="flex justify-between text-[13.5px]"><span className="mm-muted">Subtotal</span><span className="font-[600]">{kes(subtotal)}</span></div>
-                <div className="flex justify-between text-[13px] mm-muted"><span>Collection</span><span>Showroom Pickup (Free)</span></div>
                 <div className="flex justify-between text-[15px] font-[700] pt-2 border-t" style={{ borderColor: "#eadcc4" }}>
                   <span>Total</span><span>{kes(totalKes)}</span>
                 </div>
@@ -1650,7 +1631,7 @@ export default function Home() {
               <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.136.558 4.14 1.533 5.879L.057 23.63a.75.75 0 0 0 .921.919l5.86-1.485A11.945 11.945 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.937 0-3.745-.524-5.3-1.436l-.379-.226-3.93.997.996-3.847-.248-.396A9.96 9.96 0 0 1 2 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/></svg>
               WhatsApp
             </a>
-            <span>✔ M-Pesa</span><span>·</span><span>✔ Free Delivery</span><span>·</span><span>✔ 20 Colours</span>
+            <span>✔ M-Pesa</span><span>·</span><span>✔ 20 Colours</span>
           </div>
           <div className="flex flex-wrap items-center gap-3 mt-1 sm:mt-0">
             <span>© {new Date().getFullYear()} MicMikes Paints</span>

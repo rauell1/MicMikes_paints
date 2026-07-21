@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { authClient } from "@/lib/auth-client";
 
 /* ─── types ─── */
 type AdminColour  = { id: string; code: string; name: string; hex: string; family: string };
@@ -148,10 +149,23 @@ function SearchBar({ value, onChange, placeholder }: { value: string; onChange: 
 ════════════════════════════════════════════════ */
 export default function AdminApp() {
   const [authed, setAuthed] = useState<boolean | null>(null);
+  const [userRole, setUserRole] = useState<"admin" | "staff" | "">("");
 
   useEffect(() => {
     fetch("/api/admin/login", { credentials: "include" })
-      .then(r => setAuthed(r.ok))
+      .then(r => {
+        if (r.ok) {
+          r.json().then(data => {
+            setAuthed(true);
+            setUserRole(data.role || "staff");
+          }).catch(() => {
+            setAuthed(true);
+            setUserRole("admin");
+          });
+        } else {
+          setAuthed(false);
+        }
+      })
       .catch(() => setAuthed(false));
   }, []);
 
@@ -160,31 +174,59 @@ export default function AdminApp() {
       <Spinner />
     </div>
   );
-  if (!authed) return <LoginPage onSuccess={() => setAuthed(true)} />;
-  return <Dashboard onLogout={async () => {
+  if (!authed) return <LoginPage onSuccess={(role) => { setAuthed(true); setUserRole((role as any) || "staff"); }} />;
+  return <Dashboard role={userRole} onLogout={async () => {
     await fetch("/api/admin/login", { method:"DELETE", credentials:"include" }).catch(() => {});
     setAuthed(false);
+    setUserRole("");
   }} />;
 }
 
 /* ─── Login ─── */
-function LoginPage({ onSuccess }: { onSuccess: () => void }) {
-  const [pw, setPw]       = useState("");
-  const [err, setErr]     = useState("");
+function LoginPage({ onSuccess }: { onSuccess: (role?: string) => void }) {
+  const [email, setEmail]   = useState("");
+  const [pw, setPw]         = useState("");
+  const [err, setErr]       = useState("");
   const [loading, setLoading] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setErr(""); setLoading(true);
     try {
-      const r = await fetch("/api/admin/login", {
-        method:"POST", credentials:"include",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ password: pw }),
-      });
-      if (!r.ok) throw new Error();
+      if (email.trim() !== "") {
+        // Individual Staff Account Login via Better Auth
+        const { error: authErr } = await authClient.signIn.email({
+          email: email.trim(),
+          password: pw,
+        });
+
+        if (authErr) {
+          throw new Error(authErr.message || "Invalid credentials");
+        }
+
+        // Verify with the backend that this logged-in session has active staff role
+        const r = await fetch("/api/admin?_r=login", {
+          method: "GET",
+          credentials: "include",
+        });
+
+        if (!r.ok) {
+          throw new Error("You do not have administrative access permissions.");
+        }
+      } else {
+        // Legacy single password login
+        const r = await fetch("/api/admin/login", {
+          method:"POST", credentials:"include",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({ password: pw }),
+        });
+        if (!r.ok) throw new Error("Wrong password - try again");
+      }
       onSuccess();
-    } catch { setErr("Wrong password - try again"); }
-    finally   { setLoading(false); }
+    } catch (e: any) {
+      setErr(e.message || "Login failed. Please check credentials.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -200,7 +242,10 @@ function LoginPage({ onSuccess }: { onSuccess: () => void }) {
         </div>
         <div className="bg-white rounded-[20px] p-7 shadow-lg" style={{ border:"1px solid #ebe2d2" }}>
           <form onSubmit={submit} className="space-y-4">
-            <Field label="Admin password">
+            <Field label="Email Address (Optional)">
+              <input type="email" className={inp} value={email} onChange={e=>setEmail(e.target.value)} placeholder="staff@micmikespaints.co.ke" />
+            </Field>
+            <Field label={email.trim() ? "Password" : "Admin password"}>
               <input type="password" className={inp} value={pw} onChange={e=>setPw(e.target.value)} autoFocus placeholder="Enter password" />
             </Field>
             {err && <p className="text-[12px] px-3 py-2 rounded-lg" style={{ background:"#fff0ee", color:"#a43a25" }}>{err}</p>}
@@ -219,7 +264,7 @@ function LoginPage({ onSuccess }: { onSuccess: () => void }) {
 }
 
 /* ─── Dashboard shell ─── */
-function Dashboard({ onLogout }: { onLogout: () => void }) {
+function Dashboard({ role, onLogout }: { role: string; onLogout: () => void }) {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [toast, setToast] = useState("");
   const showToast = useCallback((m: string) => { setToast(m); setTimeout(() => setToast(""), 2500); }, []);
@@ -235,7 +280,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     { id:"delivery",  label:"Delivery",  icon:"🚚" },
     { id:"stock",     label:"Stock",     icon:"📋" },
     { id:"customers", label:"Customers", icon:"👤" },
-    { id:"staff",     label:"Staff",     icon:"👥" },
+    ...(role === "admin" ? [{ id:"staff" as Tab, label:"Staff", icon:"👥" }] : []),
   ];
 
   return (
@@ -275,16 +320,16 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       {/* content */}
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 sm:px-6 py-8">
         {tab === "dashboard" && <DashboardTab showToast={showToast} />}
-        {tab === "colours"   && <ColoursTab   showToast={showToast} />}
-        {tab === "products"  && <ProductsTab  showToast={showToast} />}
-        {tab === "rooms"     && <RoomsTab     showToast={showToast} />}
-        {tab === "orders"    && <OrdersTab    showToast={showToast} type="orders" />}
-        {tab === "unresolved" && <OrdersTab   showToast={showToast} type="unresolved" />}
+        {tab === "colours"   && <ColoursTab   showToast={showToast} role={role} />}
+        {tab === "products"  && <ProductsTab  showToast={showToast} role={role} />}
+        {tab === "rooms"     && <RoomsTab     showToast={showToast} role={role} />}
+        {tab === "orders"    && <OrdersTab    showToast={showToast} type="orders" role={role} />}
+        {tab === "unresolved" && <OrdersTab   showToast={showToast} type="unresolved" role={role} />}
         {tab === "payments"  && <PaymentsTab  showToast={showToast} />}
-        {tab === "delivery"  && <DeliveryTab  showToast={showToast} />}
-        {tab === "stock"     && <StockTab     showToast={showToast} />}
+        {tab === "delivery"  && <DeliveryTab  showToast={showToast} role={role} />}
+        {tab === "stock"     && <StockTab     showToast={showToast} role={role} />}
         {tab === "customers" && <CustomersTab showToast={showToast} />}
-        {tab === "staff"     && <StaffTab     showToast={showToast} />}
+        {tab === "staff"     && role === "admin" && <StaffTab showToast={showToast} />}
       </main>
 
       {toast && (
@@ -540,7 +585,7 @@ function DashboardTab({ showToast }: { showToast: (m:string) => void }) {
 }
 
 /* ─── Colours Tab ─── */
-function ColoursTab({ showToast }: { showToast: (m:string) => void }) {
+function ColoursTab({ showToast, role }: { showToast: (m:string) => void; role: string }) {
   const [colours, setColours] = useState<AdminColour[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal]     = useState<Partial<AdminColour> | null>(null);
@@ -583,7 +628,9 @@ function ColoursTab({ showToast }: { showToast: (m:string) => void }) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>Colours</h2>
-        <Btn onClick={() => setModal({ code:"", name:"", hex:"#", family:"Neutrals" })}>+ Add Colour</Btn>
+        {role === "admin" && (
+          <Btn onClick={() => setModal({ code:"", name:"", hex:"#", family:"Neutrals" })}>+ Add Colour</Btn>
+        )}
       </div>
 
       <div className="bg-white rounded-[20px] overflow-hidden border border-[#ebe2d2]">
@@ -609,8 +656,14 @@ function ColoursTab({ showToast }: { showToast: (m:string) => void }) {
                 <td className="px-6 py-3 font-mono text-[12px]">{c.hex}</td>
                 <td className="px-6 py-3">{c.family}</td>
                 <td className="px-6 py-3 text-right space-x-2">
-                  <Btn variant="ghost" size="sm" onClick={() => setModal(c)}>Edit</Btn>
-                  <Btn variant="danger" size="sm" onClick={() => remove(c.id)}>Delete</Btn>
+                  {role === "admin" ? (
+                    <>
+                      <Btn variant="ghost" size="sm" onClick={() => setModal(c)}>Edit</Btn>
+                      <Btn variant="danger" size="sm" onClick={() => remove(c.id)}>Delete</Btn>
+                    </>
+                  ) : (
+                    <span className="text-[#9b9589] italic text-[12px]">Read-only</span>
+                  )}
                 </td>
               </tr>
             ))}
@@ -641,7 +694,7 @@ function ColoursTab({ showToast }: { showToast: (m:string) => void }) {
 }
 
 /* ─── Products Tab ─── */
-function ProductsTab({ showToast }: { showToast: (m:string) => void }) {
+function ProductsTab({ showToast, role }: { showToast: (m:string) => void; role: string }) {
   const [products, setProducts] = useState<AdminProduct[]>([]);
   const [loading, setLoading]   = useState(true);
   const [prodModal, setProdModal] = useState<Partial<AdminProduct> | null>(null);
@@ -698,7 +751,9 @@ function ProductsTab({ showToast }: { showToast: (m:string) => void }) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>Products</h2>
-        <Btn onClick={() => setProdModal({ name:"", blurb:"", category:"Paint" })}>+ Add Product</Btn>
+        {role === "admin" && (
+          <Btn onClick={() => setProdModal({ name:"", blurb:"", category:"Paint" })}>+ Add Product</Btn>
+        )}
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
@@ -710,10 +765,14 @@ function ProductsTab({ showToast }: { showToast: (m:string) => void }) {
                   <span className="text-[11px] font-[700] uppercase tracking-wide px-2 py-0.5 rounded" style={{ background:"#f5ede3", color:"#B84A32" }}>{p.category}</span>
                   <h3 className="font-display text-[18px] mt-1">{p.name}</h3>
                 </div>
-                <div className="flex gap-1.5">
-                  <Btn variant="ghost" size="sm" onClick={() => setProdModal(p)}>Edit</Btn>
-                  <Btn variant="danger" size="sm" onClick={() => removeProduct(p.id)}>Delete</Btn>
-                </div>
+                {role === "admin" ? (
+                  <div className="flex gap-1.5">
+                    <Btn variant="ghost" size="sm" onClick={() => setProdModal(p)}>Edit</Btn>
+                    <Btn variant="danger" size="sm" onClick={() => removeProduct(p.id)}>Delete</Btn>
+                  </div>
+                ) : (
+                  <span className="text-[#9b9589] italic text-[12px]">Read-only</span>
+                )}
               </div>
               <p className="text-[13px] text-[#6f6a62] leading-relaxed mb-4">{p.blurb}</p>
             </div>
@@ -722,11 +781,14 @@ function ProductsTab({ showToast }: { showToast: (m:string) => void }) {
               <h4 className="text-[11px] font-[700] uppercase tracking-wider mb-2 text-[#9b9589]">Price Variants</h4>
               <div className="grid grid-cols-3 gap-2">
                 {p.variants?.map(v => (
-                  <button key={v.id} onClick={() => setVariantPriceModal(v)}
-                    className="text-left p-2.5 rounded-[10px] bg-[#fcfaf7] border border-[#ebe2d2] hover:border-[#B84A32] transition group cursor-pointer">
+                  <button key={v.id} onClick={() => role === "admin" && setVariantPriceModal(v)}
+                    disabled={role !== "admin"}
+                    className="text-left p-2.5 rounded-[10px] bg-[#fcfaf7] border border-[#ebe2d2] enabled:hover:border-[#B84A32] transition group disabled:cursor-default">
                     <span className="block text-[11px] font-[600] text-[#9b9589]">{v.size}</span>
                     <span className="block text-[13px] font-[700] mt-0.5">{kes(v.price_kes)}</span>
-                    <span className="block text-[10px] text-[#B84A32] opacity-0 group-hover:opacity-100 transition-opacity mt-1">✎ Edit price</span>
+                    {role === "admin" && (
+                      <span className="block text-[10px] text-[#B84A32] opacity-0 group-hover:opacity-100 transition-opacity mt-1">✎ Edit price</span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -769,7 +831,7 @@ function ProductsTab({ showToast }: { showToast: (m:string) => void }) {
 }
 
 /* ─── Rooms Tab ─── */
-function RoomsTab({ showToast }: { showToast: (m:string) => void }) {
+function RoomsTab({ showToast, role }: { showToast: (m:string) => void; role: string }) {
   const [rooms, setRooms] = useState<AdminRoom[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal]     = useState<Partial<AdminRoom> | null>(null);
@@ -812,7 +874,9 @@ function RoomsTab({ showToast }: { showToast: (m:string) => void }) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>Rooms (Visualizer Backgrounds)</h2>
-        <Btn onClick={() => setModal({ name:"", photo_url:"", wall_mask:"", sort_order:10 })}>+ Add Room</Btn>
+        {role === "admin" && (
+          <Btn onClick={() => setModal({ name:"", photo_url:"", wall_mask:"", sort_order:10 })}>+ Add Room</Btn>
+        )}
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -827,8 +891,14 @@ function RoomsTab({ showToast }: { showToast: (m:string) => void }) {
                 <span className="text-[11px] text-[#9b9589]">Order: {r.sort_order}</span>
               </div>
               <div className="flex gap-2">
-                <Btn variant="ghost" size="sm" onClick={() => setModal(r)}>Edit</Btn>
-                <Btn variant="danger" size="sm" onClick={() => remove(r.id)}>Delete</Btn>
+                {role === "admin" ? (
+                  <>
+                    <Btn variant="ghost" size="sm" onClick={() => setModal(r)}>Edit</Btn>
+                    <Btn variant="danger" size="sm" onClick={() => remove(r.id)}>Delete</Btn>
+                  </>
+                ) : (
+                  <span className="text-[#9b9589] italic text-[12px]">Read-only</span>
+                )}
               </div>
             </div>
           </div>
@@ -854,7 +924,7 @@ function RoomsTab({ showToast }: { showToast: (m:string) => void }) {
 }
 
 /* ─── Orders Tab ─── */
-function OrdersTab({ showToast, type = "orders" }: { showToast: (m:string) => void; type?: "orders" | "unresolved" }) {
+function OrdersTab({ showToast, type = "orders", role }: { showToast: (m:string) => void; type?: "orders" | "unresolved"; role?: string }) {
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null);
@@ -1249,7 +1319,7 @@ function PaymentsTab({ showToast }: { showToast: (m:string) => void }) {
 }
 
 /* ─── Delivery Tab ─── */
-function DeliveryTab({ showToast }: { showToast: (m:string) => void }) {
+function DeliveryTab({ showToast, role }: { showToast: (m:string) => void; role: string }) {
   const [rates, setRates] = useState<DeliveryRate[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal]     = useState<Partial<DeliveryRate> | null>(null);
@@ -1305,7 +1375,9 @@ function DeliveryTab({ showToast }: { showToast: (m:string) => void }) {
           <h2 style={{ fontFamily:'"Playfair Display",Georgia,serif', fontSize:24, fontWeight:600 }}>Delivery Zones & Rates</h2>
           <p className="text-[12px] text-[#9b9589] mt-0.5">Manage delivery rates across Kenyan counties and towns.</p>
         </div>
-        <Btn onClick={() => setModal({ county:"", town:"", rate_kes:0 })}>+ Add Rate</Btn>
+        {role === "admin" && (
+          <Btn onClick={() => setModal({ county:"", town:"", rate_kes:0 })}>+ Add Rate</Btn>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-4 items-center">
@@ -1343,8 +1415,14 @@ function DeliveryTab({ showToast }: { showToast: (m:string) => void }) {
                 <td className="px-6 py-3">{r.town || <span className="text-[#9b9589] italic">Any location</span>}</td>
                 <td className="px-6 py-3 font-[700]">{r.rate_kes === 0 ? "Free" : kes(r.rate_kes)}</td>
                 <td className="px-6 py-3 text-right space-x-2">
-                  <Btn variant="ghost" size="sm" onClick={() => setModal(r)}>Edit</Btn>
-                  <Btn variant="danger" size="sm" onClick={() => remove(r.id)}>Delete</Btn>
+                  {role === "admin" ? (
+                    <>
+                      <Btn variant="ghost" size="sm" onClick={() => setModal(r)}>Edit</Btn>
+                      <Btn variant="danger" size="sm" onClick={() => remove(r.id)}>Delete</Btn>
+                    </>
+                  ) : (
+                    <span className="text-[#9b9589] italic text-[12px]">Read-only</span>
+                  )}
                 </td>
               </tr>
             ))}
@@ -1377,7 +1455,7 @@ function DeliveryTab({ showToast }: { showToast: (m:string) => void }) {
 }
 
 /* ─── Stock Tab ─── */
-function StockTab({ showToast }: { showToast: (m:string) => void }) {
+function StockTab({ showToast, role }: { showToast: (m:string) => void; role: string }) {
   const [stock, setStock] = useState<StockEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal]     = useState<StockEntry | null>(null);
@@ -1443,7 +1521,11 @@ function StockTab({ showToast }: { showToast: (m:string) => void }) {
                     )}
                   </td>
                   <td className="px-6 py-3 text-right">
-                    <Btn variant="ghost" size="sm" onClick={() => setModal(s)}>Adjust</Btn>
+                    {role === "admin" ? (
+                      <Btn variant="ghost" size="sm" onClick={() => setModal(s)}>Adjust</Btn>
+                    ) : (
+                      <span className="text-[#9b9589] italic text-[12px]">Read-only</span>
+                    )}
                   </td>
                 </tr>
               );

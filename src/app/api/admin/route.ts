@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/server/db/client";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { releaseReservations, commitReservations } from "@/server/inventory";
+import { auth } from "@/server/auth/session";
+import { seedRbac } from "@/server/db/seed-rbac";
 
 const COOKIE = "mm-admin-token";
 const cookieOpts = "HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=86400";
@@ -38,10 +40,86 @@ function verifyToken(token: string | undefined, secret: string): boolean {
   }
 }
 
-async function isAuthorized(req: NextRequest): Promise<boolean> {
+async function isAuthorized(
+  req: NextRequest,
+  resource: string | null,
+  action: "read" | "write" | "delete"
+): Promise<boolean> {
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE)?.value;
-  return verifyToken(token, process.env.ADMIN_JWT_SECRET || "default_secret");
+
+  // 1. Fallback legacy token check (for backward compatibility)
+  if (verifyToken(token, process.env.ADMIN_JWT_SECRET || "default_secret")) {
+    return true;
+  }
+
+  // 2. Check if database has any roles seeded. If not, auto-seed.
+  try {
+    const rolesCount = await db.execute(sql`SELECT COUNT(*)::int AS count FROM iam.roles`);
+    if (Number(rolesCount.rows[0]?.count ?? 0) === 0) {
+      await seedRbac();
+    }
+  } catch (err) {
+    console.error("[api/admin] Failed to check/seed roles:", err);
+  }
+
+  // 3. Better Auth session check
+  try {
+    const session = await auth.api.getSession({
+      headers: await headers()
+    });
+
+    if (!session?.user) {
+      return false;
+    }
+
+    const email = session.user.email;
+
+    // 4. Look up in iam.staff_users
+    const staffQuery = await db.execute(sql`
+      SELECT id, status, is_super_admin
+      FROM iam.staff_users
+      WHERE LOWER(email) = LOWER(${email}) AND status = 'active'
+      LIMIT 1
+    `);
+
+    if (staffQuery.rows.length === 0) {
+      return false; // Not registered as active staff
+    }
+
+    const staffUser = staffQuery.rows[0] as any;
+
+    // 5. If super admin, allow all actions on all resources
+    if (staffUser.is_super_admin) {
+      return true;
+    }
+
+    if (!resource) return false;
+
+    // Map resources representing same permissions
+    let permResource = resource;
+    if (resource === "unresolved" || resource === "payments") {
+      permResource = "orders";
+    }
+
+    // 6. DB check for role/permission assignments
+    const rbacQuery = await db.execute(sql`
+      SELECT 1
+      FROM iam.staff_role_assignments sra
+      JOIN iam.role_permissions rp ON rp.role_id = sra.role_id
+      JOIN iam.permissions p ON p.id = rp.permission_id
+      WHERE sra.staff_user_id = ${staffUser.id}
+        AND sra.revoked_at IS NULL
+        AND p.resource = ${permResource}
+        AND p.action = ${action}
+      LIMIT 1
+    `);
+
+    return rbacQuery.rows.length > 0;
+  } catch (err) {
+    console.error("[api/admin] Better Auth session / RBAC check failed:", err);
+    return false;
+  }
 }
 
 export async function GET(req: NextRequest) {
@@ -50,14 +128,36 @@ export async function GET(req: NextRequest) {
 
   /* ── 1. LOGIN STATUS CHECK (no full auth required) ── */
   if (resource === "login") {
-    const authorized = await isAuthorized(req);
-    return authorized
-      ? NextResponse.json({ ok: true })
-      : NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const authorized = await isAuthorized(req, "dashboard", "read");
+    if (!authorized) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Determine role of the logged in user
+    let role = "admin"; // Default legacy or super admin
+    const session = await auth.api.getSession({
+      headers: await headers()
+    });
+    if (session?.user) {
+      const staffQuery = await db.execute(sql`
+        SELECT su.is_super_admin, r.code AS role_code
+        FROM iam.staff_users su
+        LEFT JOIN iam.staff_role_assignments sra ON sra.staff_user_id = su.id AND sra.revoked_at IS NULL
+        LEFT JOIN iam.roles r ON r.id = sra.role_id
+        WHERE LOWER(su.email) = LOWER(${session.user.email}) AND su.status = 'active'
+        LIMIT 1
+      `);
+      if (staffQuery.rows.length > 0) {
+        const row = staffQuery.rows[0] as any;
+        role = row.is_super_admin ? "admin" : (row.role_code ?? "staff");
+      }
+    }
+
+    return NextResponse.json({ ok: true, role });
   }
 
   /* ── All other resources require auth ── */
-  if (!(await isAuthorized(req))) {
+  if (!(await isAuthorized(req, resource, "read"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -452,7 +552,7 @@ export async function POST(req: NextRequest) {
   }
 
   /* ── All other resources require auth ── */
-  if (!(await isAuthorized(req))) {
+  if (!(await isAuthorized(req, resource, "write"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -546,12 +646,12 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  if (!(await isAuthorized(req))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   const { searchParams } = req.nextUrl;
   const resource = searchParams.get("_r");
+
+  if (!(await isAuthorized(req, resource, "write"))) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   try {
     const body = await req.json();
@@ -699,7 +799,7 @@ export async function DELETE(req: NextRequest) {
   }
 
   /* ── All other resources require auth ── */
-  if (!(await isAuthorized(req))) {
+  if (!(await isAuthorized(req, resource, "delete"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

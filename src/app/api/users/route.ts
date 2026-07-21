@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/server/db/client";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
+import { auth } from "@/server/auth/session";
 
 const COOKIE = "mm-admin-token";
 
@@ -25,14 +26,68 @@ function verifyAdminToken(token: string | undefined, secret: string): boolean {
   }
 }
 
-async function isAuthorized(req: NextRequest): Promise<boolean> {
+async function isAuthorized(req: NextRequest, action: "read" | "write" | "delete"): Promise<boolean> {
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE)?.value;
-  return verifyAdminToken(token, process.env.ADMIN_JWT_SECRET || "default_secret");
+
+  // 1. Fallback legacy token check
+  if (verifyAdminToken(token, process.env.ADMIN_JWT_SECRET || "default_secret")) {
+    return true;
+  }
+
+  // 2. Better Auth session check
+  try {
+    const session = await auth.api.getSession({
+      headers: await headers()
+    });
+
+    if (!session?.user) {
+      return false;
+    }
+
+    const email = session.user.email;
+
+    // 3. Look up in iam.staff_users
+    const staffQuery = await db.execute(sql`
+      SELECT id, status, is_super_admin
+      FROM iam.staff_users
+      WHERE LOWER(email) = LOWER(${email}) AND status = 'active'
+      LIMIT 1
+    `);
+
+    if (staffQuery.rows.length === 0) {
+      return false;
+    }
+
+    const staffUser = staffQuery.rows[0] as any;
+
+    // 4. If super admin, allow
+    if (staffUser.is_super_admin) {
+      return true;
+    }
+
+    // 5. Check if staff has 'staff' resource permissions
+    const rbacQuery = await db.execute(sql`
+      SELECT 1
+      FROM iam.staff_role_assignments sra
+      JOIN iam.role_permissions rp ON rp.role_id = sra.role_id
+      JOIN iam.permissions p ON p.id = rp.permission_id
+      WHERE sra.staff_user_id = ${staffUser.id}
+        AND sra.revoked_at IS NULL
+        AND p.resource = 'staff'
+        AND p.action = ${action}
+      LIMIT 1
+    `);
+
+    return rbacQuery.rows.length > 0;
+  } catch (err) {
+    console.error("[api/users] Auth/RBAC check failed:", err);
+    return false;
+  }
 }
 
 export async function GET(req: NextRequest) {
-  if (!(await isAuthorized(req))) {
+  if (!(await isAuthorized(req, "read"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -42,12 +97,14 @@ export async function GET(req: NextRequest) {
   try {
     if (resource === "list") {
       const rows = (await db.execute(sql`
-        SELECT id, full_name AS name, email, phone_e164 AS phone, 
-               CASE WHEN is_super_admin = true THEN 'admin' ELSE 'staff' END AS role,
-               created_at
-        FROM iam.staff_users
-        WHERE status != 'disabled'
-        ORDER BY created_at DESC
+        SELECT su.id, su.full_name AS name, su.email, su.phone_e164 AS phone, 
+               COALESCE(r.code, CASE WHEN su.is_super_admin = true THEN 'admin' ELSE 'staff' END) AS role,
+               su.created_at
+        FROM iam.staff_users su
+        LEFT JOIN iam.staff_role_assignments sra ON sra.staff_user_id = su.id AND sra.revoked_at IS NULL
+        LEFT JOIN iam.roles r ON r.id = sra.role_id
+        WHERE su.status != 'disabled'
+        ORDER BY su.created_at DESC
       `)).rows;
 
       return NextResponse.json({ users: rows });
@@ -61,7 +118,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!(await isAuthorized(req))) {
+  if (!(await isAuthorized(req, "write"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -79,7 +136,7 @@ export async function POST(req: NextRequest) {
 
       const isSuper = role === "admin";
 
-      await db.execute(sql`
+      const insertResult = (await db.execute(sql`
         INSERT INTO iam.staff_users (full_name, email, phone_e164, is_super_admin, status)
         VALUES (${name}, ${email}, ${phone || null}, ${isSuper}, 'active')
         ON CONFLICT (email) DO UPDATE SET 
@@ -87,7 +144,31 @@ export async function POST(req: NextRequest) {
           phone_e164 = EXCLUDED.phone_e164,
           is_super_admin = EXCLUDED.is_super_admin,
           status = 'active'
-      `);
+        RETURNING id
+      `)).rows;
+
+      const insertedUserId = insertResult[0]?.id;
+
+      if (insertedUserId) {
+        // Revoke previous assignments
+        await db.execute(sql`
+          UPDATE iam.staff_role_assignments
+          SET revoked_at = now()
+          WHERE staff_user_id = ${insertedUserId} AND revoked_at IS NULL
+        `);
+
+        // Add new role assignment
+        const roleRows = (await db.execute(sql`
+          SELECT id FROM iam.roles WHERE code = ${role} LIMIT 1
+        `)).rows;
+        const roleId = roleRows.length > 0 ? roleRows[0].id : null;
+        if (roleId) {
+          await db.execute(sql`
+            INSERT INTO iam.staff_role_assignments (staff_user_id, role_id)
+            VALUES (${insertedUserId}, ${roleId})
+          `);
+        }
+      }
 
       return NextResponse.json({ ok: true }, { status: 201 });
     }
@@ -100,7 +181,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  if (!(await isAuthorized(req))) {
+  if (!(await isAuthorized(req, "write"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -125,6 +206,25 @@ export async function PATCH(req: NextRequest) {
         WHERE id = ${id}
       `);
 
+      // Revoke previous assignments
+      await db.execute(sql`
+        UPDATE iam.staff_role_assignments
+        SET revoked_at = now()
+        WHERE staff_user_id = ${id} AND revoked_at IS NULL
+      `);
+
+      // Add new role assignment
+      const roleRows = (await db.execute(sql`
+        SELECT id FROM iam.roles WHERE code = ${role} LIMIT 1
+      `)).rows;
+      const roleId = roleRows.length > 0 ? roleRows[0].id : null;
+      if (roleId) {
+        await db.execute(sql`
+          INSERT INTO iam.staff_role_assignments (staff_user_id, role_id)
+          VALUES (${id}, ${roleId})
+        `);
+      }
+
       return NextResponse.json({ ok: true });
     }
 
@@ -136,7 +236,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  if (!(await isAuthorized(req))) {
+  if (!(await isAuthorized(req, "delete"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -152,6 +252,14 @@ export async function DELETE(req: NextRequest) {
       await db.execute(sql`
         UPDATE iam.staff_users SET status = 'disabled', updated_at = now() WHERE id = ${id}
       `);
+
+      // Revoke assignments
+      await db.execute(sql`
+        UPDATE iam.staff_role_assignments
+        SET revoked_at = now()
+        WHERE staff_user_id = ${id} AND revoked_at IS NULL
+      `);
+
       return new NextResponse(null, { status: 204 });
     }
 

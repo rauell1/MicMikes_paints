@@ -46,15 +46,16 @@ export default function TermsPage() {
 
           {/* Section 3 */}
           <section className="bg-white p-6 sm:p-8 rounded-[20px] border" style={{ borderColor: "#e8dcc7" }}>
-            <h2 className="font-display text-[22px] font-bold mb-4" style={{ color: "#B84A32" }}>3. Deliveries and County Zones</h2>
+            <h2 className="font-display text-[22px] font-bold mb-4" style={{ color: "#B84A32" }}>3. Order Collection &amp; Showroom Pickup</h2>
             <p>
-              We ship paints to select counties and subcounties in Kenya. 
+              At this time, MicMikes Paints operates as a <strong>sales point only</strong>. All orders are prepared for collection at our showroom. We do not currently offer delivery services.
             </p>
             <ul className="list-disc pl-5 mt-3 space-y-2">
-              <li><strong>Delivery Zones:</strong> Delivery fees are calculated dynamically based on your selected county and town. Nairobi deliveries are free for orders exceeding KES 15,000.</li>
-              <li><strong>Coordinates Sharing:</strong> We offer an optional geolocation feature to share your delivery rider pin. You are responsible for ensuring the coordinates provided are accurate. We are not liable for delayed deliveries due to wrong coordinates or invalid physical addresses.</li>
-              <li><strong>Timelines:</strong> Standard delivery within Nairobi takes 24 to 48 hours. Deliveries outside Nairobi take 2 to 4 business days.</li>
+              <li><strong>Collection Only:</strong> Once your M-Pesa payment is confirmed, our team will prepare your order for collection at the MicMikes Paints showroom on Keekorok Road, Nairobi.</li>
+              <li><strong>Readiness Notification:</strong> You will be contacted via phone or SMS when your order is ready for pickup, typically within 24 to 48 business hours of payment confirmation.</li>
+              <li><strong>Order Validity:</strong> Uncollected orders will be held for a maximum of 7 days. After this period, MicMikes Paints reserves the right to restock the goods. Please contact us in advance if you are unable to collect within this window.</li>
             </ul>
+            <p className="mt-3 text-[13.5px] text-[#7b7468]">Delivery services may be introduced in a future update. This policy will be updated accordingly.</p>
           </section>
 
           {/* Section 4 */}

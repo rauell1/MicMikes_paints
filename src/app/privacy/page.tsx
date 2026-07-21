@@ -114,10 +114,10 @@ export default function PrivacyPage() {
           {/* Section 2 */}
           <section className="bg-white p-6 sm:p-8 rounded-[20px] border" style={{ borderColor: "#e8dcc7" }}>
             <h2 className="font-display text-[22px] font-bold mb-4" style={{ color: "#B84A32" }}>2. Personal Data We Collect</h2>
-            <p>To fulfill your orders, deliver products, and support interactive features, we collect the following categories of personal data:</p>
+            <p>To fulfill your orders and support interactive features, we collect the following categories of personal data:</p>
             <ul className="list-disc pl-5 mt-3 space-y-2">
               <li><strong>Contact Information:</strong> Full name, email address, and phone number (primarily your M-Pesa registered number).</li>
-              <li><strong>Delivery Information:</strong> Physical delivery address (county, subcounty/town, estate, building, unit) and optional GPS coordinates (latitude/longitude) to aid riders.</li>
+              <li><strong>Order Reference:</strong> Your order details are recorded for fulfilment and collection notification purposes. No delivery address or GPS coordinates are required or collected at this time.</li>
               <li><strong>Financial Transaction Data:</strong> Safaricom M-Pesa transaction reference numbers and payment status. We do not store credit card numbers or PINs.</li>
               <li><strong>Visual Media:</strong> Photos of your rooms that you upload to use our Room Visualizer. These photos are processed to show paint overlays.</li>
               <li><strong>Technical Data:</strong> Browser cookies, IP address, and usage data collected via performance and analytics tools.</li>
@@ -130,7 +130,7 @@ export default function PrivacyPage() {
             <p>Under Section 30 of the DPA, we process your personal data using the following legal bases:</p>
             <ul className="list-disc pl-5 mt-3 space-y-2">
               <li><strong>Consent:</strong> When you opt-in to marketing communications, accept analytical cookies, or upload photos to the Room Visualizer.</li>
-              <li><strong>Performance of a Contract:</strong> To process your order, receive payment via M-Pesa, and deliver paints to your address.</li>
+              <li><strong>Performance of a Contract:</strong> To process your order, receive payment via M-Pesa, and notify you when your order is ready for showroom collection.</li>
               <li><strong>Legal Obligation:</strong> To maintain transaction records and file VAT tax returns with the Kenya Revenue Authority (KRA).</li>
             </ul>
           </section>
@@ -141,7 +141,6 @@ export default function PrivacyPage() {
             <p>We use your data strictly to facilitate the MicMikes Paints experience. We share your data only with verified service providers necessary to run our service:</p>
             <ul className="list-disc pl-5 mt-3 space-y-2">
               <li><strong>Safaricom M-Pesa:</strong> To trigger payment STK push prompts and verify transactions.</li>
-              <li><strong>Delivery Riders:</strong> Shared name, phone, address, and coordinates solely to complete delivery.</li>
               <li><strong>Hosting & Database:</strong> Vercel and Neon Postgres DB, which store your orders securely.</li>
             </ul>
             <p className="mt-3">We never sell, rent, or trade your personal data with third parties for marketing purposes.</p>

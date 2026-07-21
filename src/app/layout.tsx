@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Playfair_Display, Cormorant, Inter, Roboto_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const playfairDisplay = Playfair_Display({
@@ -44,6 +45,22 @@ export default function RootLayout({
       className={`${playfairDisplay.variable} ${cormorant.variable} ${inter.variable} ${robotoMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        {process.env.NEXT_PUBLIC_COOKIEYES_KEY && (
+          <Script
+            src={`https://cdn.cookieyes.com/client_data/${process.env.NEXT_PUBLIC_COOKIEYES_KEY}/script.js`}
+            id="cookieyes"
+            strategy="beforeInteractive"
+          />
+        )}
+        {process.env.NEXT_PUBLIC_COOKIEBOT_ID && (
+          <Script
+            src="https://consent.cookiebot.com/uc.js"
+            id="Cookiebot"
+            data-cbid={process.env.NEXT_PUBLIC_COOKIEBOT_ID}
+            data-blockingmode="auto"
+            strategy="beforeInteractive"
+          />
+        )}
         {children}
         <script
           type="application/ld+json"

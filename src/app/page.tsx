@@ -996,6 +996,9 @@ export default function Home() {
 
   const [showCookieBanner, setShowCookieBanner] = useState(false);
   useEffect(() => {
+    const hasCmp = !!(process.env.NEXT_PUBLIC_COOKIEYES_KEY || process.env.NEXT_PUBLIC_COOKIEBOT_ID);
+    if (hasCmp) return;
+
     if (typeof window !== "undefined") {
       const consent = localStorage.getItem("micmikes-privacy-consent");
       if (!consent) {

@@ -154,18 +154,7 @@ export async function POST(req: NextRequest) {
     const analyticsConsent = data.analyticsConsent ?? false;
 
     /* ── 1. Look up Delivery Fee (read-only) ── */
-    let deliveryFeeMinor = DEFAULT_DELIVERY_FEE_MINOR;
-    const rateRows = (await db.execute(sql`
-      SELECT base_fee_minor FROM delivery.delivery_zones
-      WHERE LOWER(county_code) = LOWER(${county})
-        AND (LOWER(locality) = LOWER(${town}) OR locality IS NULL)
-      ORDER BY
-        CASE WHEN locality IS NOT NULL AND LOWER(locality) = LOWER(${town}) THEN 0 ELSE 1 END
-      LIMIT 1
-    `)).rows;
-    if (rateRows.length > 0) {
-      deliveryFeeMinor = Number(rateRows[0].base_fee_minor);
-    }
+    const deliveryFeeMinor = 0; // Forced to 0 (Sales Point Only)
 
     /* ── 4. Price Cart Items ── */
     const verified: {

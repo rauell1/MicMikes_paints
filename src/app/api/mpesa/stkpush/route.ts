@@ -37,7 +37,8 @@ async function fetchAccessToken(): Promise<string> {
   
   const res = await fetch(`${base}/oauth/v1/generate?grant_type=client_credentials`, {
     method: "GET",
-    headers: { Authorization: `Basic ${credentials}` }
+    headers: { Authorization: `Basic ${credentials}` },
+    cache: "no-store"
   });
   if (!res.ok) throw new Error(`M-Pesa OAuth failed (${res.status}): ${await res.text()}`);
   const data = (await res.json()) as { access_token: string };
@@ -153,7 +154,7 @@ export async function POST(req: NextRequest) {
       console.error("[mpesa/stkpush] MPESA_CALLBACK_URL must be set in non-production environments");
       return NextResponse.json({ error: "Payment service not configured (missing callback URL)" }, { status: 503 });
     }
-    const resolvedCallbackUrl = callbackUrl ?? "https://mic-mikes-paints.vercel.app/api/mpesa/callback";
+    const resolvedCallbackUrl = callbackUrl || `${req.nextUrl.origin}/api/mpesa/callback`;
 
     let accessToken: string;
     try { accessToken = await fetchAccessToken(); }
@@ -179,7 +180,8 @@ export async function POST(req: NextRequest) {
     const stkRes = await fetch(`${base}/mpesa/stkpush/v1/processrequest`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify(stkBody)
+      body: JSON.stringify(stkBody),
+      cache: "no-store"
     });
 
     const stkData = (await stkRes.json()) as any;

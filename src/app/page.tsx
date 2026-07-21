@@ -232,9 +232,9 @@ function CheckoutDialog({
   const [name, setName]       = useState("");
   const [email, setEmail]     = useState("");
   const [phone, setPhone]     = useState("");
-  const [county, setCounty]   = useState("");
-  const [town, setTown]       = useState("");
-  const [address, setAddress] = useState("");
+  const [county, setCounty]   = useState("Nairobi");
+  const [town, setTown]       = useState("Nairobi");
+  const [address, setAddress] = useState("Sales Point Collection");
   const [notes, setNotes]     = useState("");
   const payMethod = "mpesa" as const;
   const [submitting, setSubmitting] = useState(false);
@@ -264,16 +264,11 @@ function CheckoutDialog({
     .sort();
 
   const getDeliveryFee = () => {
-    if (!county) return 0;
-    const matchTown = deliveryZones.find(z => z.county === county && z.town === town);
-    if (matchTown) return matchTown.rate_kes;
-    const matchBase = deliveryZones.find(z => z.county === county && z.town === null);
-    if (matchBase) return matchBase.rate_kes;
     return 0;
   };
 
-  const deliveryFee = getDeliveryFee();
-  const checkoutTotal = subtotal + deliveryFee;
+  const deliveryFee = 0;
+  const checkoutTotal = subtotal;
 
   const captureLocation = () => {
     if (!navigator.geolocation) {
@@ -317,7 +312,7 @@ function CheckoutDialog({
   };
 
   const detailsValid = () => {
-    if (!name.trim() || !email.trim() || !phone.trim() || !county.trim() || !address.trim()) {
+    if (!name.trim() || !email.trim() || !phone.trim()) {
       setError("Please fill all required fields.");
       return false;
     }
@@ -427,58 +422,8 @@ function CheckoutDialog({
               <div><label className="text-[12px] font-[600] block mb-[5px]">Full name *</label><input className="input" value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Jane Wanjiku" /></div>
               <div><label className="text-[12px] font-[600] block mb-[5px]">Email *</label><input className="input" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="jane@example.com" /></div>
               <div><label className="text-[12px] font-[600] block mb-[5px]">Phone (M-Pesa) *</label><input className="input" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="07xx xxx xxx" type="tel" /></div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[12px] font-[600] block mb-[5px]">County *</label>
-                  <select 
-                    className="input bg-white" 
-                    value={county} 
-                    onChange={e => { setCounty(e.target.value); setTown(""); }}
-                  >
-                    <option value="">Select County...</option>
-                    {availableCounties.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[12px] font-[600] block mb-[5px]">Town / Locality *</label>
-                  <select 
-                    className="input bg-white" 
-                    value={town} 
-                    onChange={e => setTown(e.target.value)}
-                    disabled={!county}
-                  >
-                    <option value="">Select Town/Locality...</option>
-                    {availableTowns.map(t => <option key={t} value={t}>{t}</option>)}
-                    {county && <option value="">Other / Any location (Base Rate)</option>}
-                  </select>
-                </div>
-              </div>
-              <div><label className="text-[12px] font-[600] block mb-[5px]">Street / Estate *</label><input className="input" value={address} onChange={e=>setAddress(e.target.value)} placeholder="Bensam Road, Apt 3A" /></div>
-              
-              <div className="bg-[#fcfaf7] border border-[#ebe2d2] p-4 rounded-[16px] space-y-2 mt-2">
-                <p className="text-[12.5px] font-[700] text-graphite flex items-center gap-1.5">
-                  <span>📍</span> Add Precise Delivery Pin (Optional)
-                </p>
-                <p className="text-[11.5px] text-[#9b9589]">Share your current location coordinates so delivery riders can easily navigate to your doorstep.</p>
-                <div className="flex items-center gap-3">
-                  <button 
-                    type="button"
-                    onClick={captureLocation}
-                    className="px-4 py-2 rounded-[12px] bg-[#B84A32] hover:bg-[#a13b24] text-white font-[700] text-[12.5px] transition flex items-center gap-1.5 active:scale-95"
-                  >
-                    {locStatus === "getting" ? "Locating..." : "📍 Share Current Location"}
-                  </button>
-                  {locStatus === "success" && latitude && longitude && (
-                    <span className="text-[12px] text-green-700 font-[600]">
-                      ✓ Pinned: {latitude.toFixed(4)}, {longitude.toFixed(4)}
-                    </span>
-                  )}
-                  {locStatus === "error" && (
-                    <span className="text-[12px] text-red-600 font-[600]">
-                      Failed to get location
-                    </span>
-                  )}
-                </div>
+              <div className="bg-[#f0fdf4] border border-[#bbf7d0] p-4 rounded-[16px] text-[13px] text-[#15803d] font-medium my-3">
+                🏪 <strong>Sales Point Only:</strong> All orders are prepared for showroom/factory collection. No delivery options are currently active.
               </div>
 
               <div><label className="text-[12px] font-[600] block mb-[5px]">Notes (optional)</label><textarea className="input" rows={2} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Gate colour, special instructions…" style={{ resize: "none" }} /></div>
@@ -541,12 +486,10 @@ function CheckoutDialog({
                 <div className="flex justify-between font-[700] text-[15px] pt-2 border-t" style={{ borderColor: "#eadcc4" }}><span>Total</span><span>{kes(checkoutTotal)}</span></div>
               </div>
               <div className="mm-card rounded-[14px] p-4 space-y-[5px]">
-                <div className="font-[600] mb-1">Delivery to</div>
+                <div className="font-[600] mb-1">Collection details</div>
                 <div>{name}</div>
                 <div className="mm-muted">{phone}</div>
-                <div className="mm-muted">{town || "Any location"}, {county}</div>
-                <div className="mm-muted">{address}</div>
-                {latitude && longitude && <div className="text-[12px] text-green-700 font-[600]">📍 Coordinates: {latitude.toFixed(6)}, {longitude.toFixed(6)}</div>}
+                <div className="mm-muted">Sales Point Collection</div>
               </div>
               {mpesaStatus === "pending" && (
                 <div className="text-[13px] font-[600] px-4 py-3 rounded-[12px] text-center" style={{ background: "#f0f8ff", color: "#2B6CB0" }}>
@@ -1638,7 +1581,7 @@ export default function Home() {
             {cart.length > 0 && (
               <div className="px-6 py-5 border-t space-y-3" style={{ borderColor: "#e7d9c3" }}>
                 <div className="flex justify-between text-[13.5px]"><span className="mm-muted">Subtotal</span><span className="font-[600]">{kes(subtotal)}</span></div>
-                <div className="flex justify-between text-[13px] mm-muted"><span>Delivery</span><span>Free</span></div>
+                <div className="flex justify-between text-[13px] mm-muted"><span>Collection</span><span>Showroom Pickup (Free)</span></div>
                 <div className="flex justify-between text-[15px] font-[700] pt-2 border-t" style={{ borderColor: "#eadcc4" }}>
                   <span>Total</span><span>{kes(totalKes)}</span>
                 </div>

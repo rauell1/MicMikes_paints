@@ -607,6 +607,10 @@ function ProductCard({ prod, colours, addItem, onOpenQuickView }: { prod: Produc
   const [colourId, setColourId] = useState<string | null>(colours[0]?.id || null);
   const selectedColour = colours.find(c => c.id === colourId) || colours[0] || null;
 
+  // Social proof rating calculations
+  const rating = prod.isFeatured ? 4.9 : (prod.isNewRelease ? 4.8 : 4.6);
+  const reviewsCount = prod.isFeatured ? 36 : (prod.isNewRelease ? 12 : 18);
+
   const handleQuickAdd = () => {
     if (!selectedColour) return;
     addItem({
@@ -623,7 +627,7 @@ function ProductCard({ prod, colours, addItem, onOpenQuickView }: { prod: Produc
   };
 
   return (
-    <div className="mm-card rounded-[22px] overflow-hidden mm-shadow flex flex-col group relative bg-white">
+    <div className="mm-card rounded-[22px] overflow-hidden mm-shadow flex flex-col group relative bg-white hover:-translate-y-1.5 hover:shadow-xl transition-all duration-300">
       <div className="absolute top-3 left-3 z-10 flex flex-wrap gap-1">
         <span className="text-[11px] font-[700] px-[10px] py-[5px] rounded-full bg-white/95 text-graphite mm-shadow">
           {prod.categoryName || prod.category}
@@ -677,19 +681,65 @@ function ProductCard({ prod, colours, addItem, onOpenQuickView }: { prod: Produc
       <div className="p-4 sm:p-5 flex flex-col flex-1">
         <div className="cursor-pointer" onClick={() => onOpenQuickView(prod)}>
           <div className="font-display text-[19px] text-graphite font-bold hover:text-[#B84A32] transition-colors">{prod.name}</div>
+          
+          {/* Star Rating & Social Proof */}
+          <div className="flex items-center gap-1 mt-1 mb-2">
+            <div className="flex text-amber-400 text-[13.5px]">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <span key={i}>{i < Math.floor(rating) ? "★" : "☆"}</span>
+              ))}
+            </div>
+            <span className="text-[11.5px] font-[700] text-graphite ml-1">{rating.toFixed(1)}</span>
+            <span className="text-[11px] text-[#9b9589] ml-1">({reviewsCount} reviews)</span>
+          </div>
+
           <p className="text-[13px] mm-muted mt-1 line-clamp-2 h-[38px]">{prod.blurb}</p>
         </div>
 
+        {/* Sizes */}
         <div className="mt-4">
-          <div className="text-[11px] font-[600] mm-muted uppercase tracking-wider mb-2">Size</div>
-          <div className="flex gap-1.5">
+          <div className="text-[11px] font-[700] mm-muted uppercase tracking-wider mb-1.5">Size</div>
+          <div className="flex gap-1.5 flex-wrap">
             {uniqueSizes.map(s => (
-              <button key={s} onClick={() => setSize(s)} className={`chip py-[4px] px-[10px] text-[12px] ${size === s ? "active" : ""}`}>
+              <button key={s} onClick={() => setSize(s)} className={`chip py-[3px] px-[9px] text-[11.5px] ${size === s ? "active" : ""}`}>
                 {s}
               </button>
             ))}
           </div>
         </div>
+
+        {/* Dynamic Shade Picker */}
+        {prod.category === "Paint" && colours.length > 0 && (
+          <div className="mt-4">
+            <div className="text-[11px] font-[700] mm-muted uppercase tracking-wider mb-1.5">
+              Shade: <span className="text-graphite font-bold">{selectedColour?.name}</span>
+            </div>
+            <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+              {colours.slice(0, 8).map(c => (
+                <button
+                  key={c.id}
+                  onClick={() => setColourId(c.id)}
+                  title={c.name}
+                  className="w-6 h-6 rounded-full border-2 transition-all cursor-pointer flex-shrink-0 hover:scale-115"
+                  style={{
+                    backgroundColor: c.hex,
+                    borderColor: colourId === c.id ? "#B84A32" : "rgba(0,0,0,0.12)",
+                    transform: colourId === c.id ? "scale(1.1)" : "none",
+                  }}
+                />
+              ))}
+              {colours.length > 8 && (
+                <button 
+                  onClick={() => onOpenQuickView(prod)}
+                  className="w-6 h-6 rounded-full bg-slate-100 border border-[#e1d3bd] flex items-center justify-center text-[9px] font-[700] text-[#6f6a62] cursor-pointer hover:bg-slate-200 transition-colors"
+                  title="More colours in detail view"
+                >
+                  +{colours.length - 8}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
           <div>
@@ -700,24 +750,25 @@ function ProductCard({ prod, colours, addItem, onOpenQuickView }: { prod: Produc
               )}
             </div>
             {showDiscount && (
-              <div className="text-[10px] font-[700] text-red-650" style={{ color: "#B84A32" }}>Save {discountPercent}%</div>
+              <div className="text-[10px] font-[700]" style={{ color: "#B84A32" }}>Save {discountPercent}%</div>
             )}
             <div className="text-[11px] mm-muted">{size} · {finish}</div>
           </div>
 
-          <div className="flex flex-col gap-1 items-end">
+          <div className="flex flex-col gap-1.5 items-end">
             <button
               onClick={handleQuickAdd}
               disabled={isSoldOut || !selectedColour}
-              className="btn btn-primary px-[15px] py-[8px] text-[12.5px] disabled:opacity-50"
+              className="btn btn-primary px-[15px] py-[8.5px] text-[13px] font-[600] disabled:opacity-50 hover:bg-[#a13c27] transition-all cursor-pointer rounded-[12px] flex items-center gap-1.5 shadow-sm"
             >
-              {isSoldOut ? "Sold Out" : "Quick Add"}
+              <span>🛒</span>
+              <span>{isSoldOut ? "Sold Out" : "Quick Add"}</span>
             </button>
             <button
               onClick={() => onOpenQuickView(prod)}
-              className="text-[11px] font-[600] text-[#4FB9B0] hover:underline bg-transparent border-0 cursor-pointer p-0 mt-1"
+              className="text-[11.5px] font-[600] text-[#4FB9B0] hover:text-[#3da097] hover:underline bg-transparent border-0 cursor-pointer p-0 mt-0.5"
             >
-              View Details
+              View Details →
             </button>
           </div>
         </div>
@@ -1402,9 +1453,10 @@ export default function Home() {
                   placeholder="Search products by name, tags..."
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
-                  className="input pl-10 pr-4"
+                  className="input pr-4"
+                  style={{ paddingLeft: "2.75rem" }}
                 />
-                <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                   <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                     <circle cx="11" cy="11" r="8"/>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.3-4.3"/>

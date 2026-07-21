@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
             <p><strong>What happens next:</strong></p>
             <ol>
               <li>Your customer profile has been immediately deactivated (disabled).</li>
-              <li>Your personal details, saved rooms, wishlists, and delivery addresses will be permanently deleted from our active databases within 14 days.</li>
+              <li>Your personal details, saved rooms, wishlists, and order history will be permanently deleted from our active databases within 14 days.</li>
               <li>Please note that completed order ledgers and payment logs must be retained for 7 years to comply with statutory tax auditing requirements under the <strong>Kenya Revenue Authority (KRA)</strong> guidelines. These records will be anonymized where possible.</li>
             </ol>
             <p>If you did not authorize this request, please contact our Data Protection Officer immediately at <a href="mailto:privacy@micmikespaints.co.ke" style="color: #B84A32;">privacy@micmikespaints.co.ke</a>.</p>

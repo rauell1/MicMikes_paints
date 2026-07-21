@@ -1128,7 +1128,7 @@ export default function Home() {
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: "#F8F4EF", color: "#2B2B2E", fontFamily: `"Inter", system-ui, -apple-system, Segoe UI, Roboto, sans-serif` }}>
       <div className="w-full text-[11.5px] sm:text-[12.5px] tracking-wide" style={{ backgroundColor: "#2B2B2E", color: "#F8F4EF" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-8 py-[10px] flex items-center justify-center gap-4 text-center">
-          <span className="font-tag text-[15px] sm:text-[16px] italic">Bring Walls to Life — Colour That Lasts. Style That Inspires.</span>
+          <span className="font-tag text-[15px] sm:text-[16px] italic">Bring Walls to Life - Colour That Lasts. Style That Inspires.</span>
         </div>
       </div>
 
@@ -1177,7 +1177,7 @@ export default function Home() {
                 <div className="inline-flex items-center gap-2 text-[11px] font-mono2 px-3 py-[6px] rounded-full mb-4 bg-white border" style={{ borderColor: "#e7d7be", color: "#B84A32" }}>KEEKOROK EDITION • NAIROBI • KES</div>
                 <h1 className="font-display text-[40px] sm:text-[56px] md:text-[64px] leading-[0.95] tracking-[-0.017em] text-graphite">Bring Walls<br/>to Life</h1>
                 <p className="font-tag text-[22px] sm:text-[26px] mt-3" style={{ color: "#5d5850" }}>Colour That Lasts. Style That Inspires.</p>
-                <p className="max-w-[520px] text-[15.5px] leading-relaxed mm-muted mt-5">Keekorok paint system — 20 curated Kenyan shades, M-Pesa checkout. Premium emulsion, eggshell, satin &amp; semi-gloss.</p>
+                <p className="max-w-[520px] text-[15.5px] leading-relaxed mm-muted mt-5">Keekorok paint system - 20 curated Kenyan shades, M-Pesa checkout. Premium emulsion, eggshell, satin &amp; semi-gloss.</p>
                 <div className="flex flex-wrap gap-3 mt-7">
                   <button onClick={() => navigate("colours")} className="btn btn-primary px-[22px] py-[13px] text-[14.5px]">Find Your Perfect Shade →</button>
                   <button onClick={() => navigate("visualizer")} className="btn btn-ghost px-[22px] py-[13px] text-[14.5px]">Open Visualizer</button>
@@ -1212,7 +1212,7 @@ export default function Home() {
           <div className="max-w-7xl mx-auto px-4 sm:px-8">
             <div className="max-w-[760px] mb-6">
               <h2 className="font-display text-[30px] sm:text-[36px] text-graphite">Colour Explorer</h2>
-              <p className="mm-muted mt-2">20 Kenyan-inspired Keekorok tones. Tap any swatch — it loads instantly in the visualizer.</p>
+              <p className="mm-muted mt-2">20 Kenyan-inspired Keekorok tones. Tap any swatch - it loads instantly in the visualizer.</p>
             </div>
             <div className="flex flex-wrap gap-[9px] mb-5">
               {ALL_FAMILIES.map(f => (
@@ -1221,7 +1221,7 @@ export default function Home() {
             </div>
             <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-3">
               {filteredColours.map(c => (
-                <button key={c.id} onClick={() => { setVizColourId(c.id); navigate("visualizer"); }} title={c.name} aria-label={`${c.name} — click to visualize`} className="flex flex-col items-center gap-[6px] group bg-transparent border-0 cursor-pointer">
+                <button key={c.id} onClick={() => { setVizColourId(c.id); navigate("visualizer"); }} title={c.name} aria-label={`${c.name} - click to visualize`} className="flex flex-col items-center gap-[6px] group bg-transparent border-0 cursor-pointer">
                   <div className={`swatch ${vizColour?.id === c.id ? "active" : ""}`} style={{ backgroundColor: c.hex }} />
                   <span className="text-[10.5px] text-center leading-tight mm-muted group-hover:text-[#2B2B2E] transition-colors line-clamp-2">{c.name}</span>
                 </button>
@@ -1298,7 +1298,7 @@ export default function Home() {
                       return (
                         <button onClick={() => addItem({ productId: prod.id, productName: prod.name, productSlug: prod.slug, colourId: vizColour.id, colourName: vizColour.name, colourHex: vizColour.hex, size: vizSize, finish: vizFinish, unitKes: prod.baseKes[vizSize] })}
                           className="btn btn-primary w-full py-[13px] text-[14px]">
-                          Add to Cart — {kes(prod.baseKes[vizSize])}
+                          Add to Cart - {kes(prod.baseKes[vizSize])}
                         </button>
                       );
                     })()}
@@ -1748,7 +1748,7 @@ function renderMarkdown(text: string): React.ReactNode[] {
 function ChatWidget() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: "assistant", content: "Hi! I'm the MicMikes Paints assistant 🎨 Ask me about colours, finishes, prices, or delivery — or tell me your room and I'll suggest a shade." },
+    { role: "assistant", content: "Hi! I'm the MicMikes Paints assistant 🎨 Ask me about colours, finishes, prices - or tell me your room and I'll suggest a shade." },
   ]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);

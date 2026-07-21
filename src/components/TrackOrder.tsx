@@ -129,7 +129,7 @@ function PayNow({ order, defaultPhone, balanceKes, onPaid }: {
       } catch { /* keep polling */ }
     }
     setState("failed");
-    setMsg("We haven't received confirmation yet. If you paid, this will update automatically — refresh in a moment.");
+    setMsg("We haven't received confirmation yet. If you paid, this will update automatically - refresh in a moment.");
   };
 
   const payNow = async () => {
@@ -149,7 +149,7 @@ function PayNow({ order, defaultPhone, balanceKes, onPaid }: {
         return;
       }
       setState("waiting");
-      setMsg(`Prompt sent to ${payPhone.trim()} — enter your M-Pesa PIN.`);
+      setMsg(`Prompt sent to ${payPhone.trim()} - enter your M-Pesa PIN.`);
       if (d.checkoutRequestId) poll(d.checkoutRequestId, amt);
     } catch {
       setState("failed");
@@ -210,7 +210,7 @@ function OrderCard({ order, phone }: { order: TrackedOrder; phone: string }) {
         style={{ borderColor: "#ebe2d2", background: "#fffdf8" }}>
         <div>
           <div className="font-mono2 text-[11.5px] font-[600]" style={{ color: "#B84A32" }}>{order.reference}</div>
-          <div className="text-[11px] mm-muted mt-[1px]">{date} · {order.town}, {order.county}</div>
+          <div className="text-[11px] mm-muted mt-[1px]">{date}</div>
         </div>
         <StatusBadge status={displayStatus} />
       </div>
@@ -237,12 +237,7 @@ function OrderCard({ order, phone }: { order: TrackedOrder; phone: string }) {
 
       {/* Footer */}
       <div className="px-4 py-2.5 border-t text-[12px]" style={{ borderColor: "#ebe2d2" }}>
-        <div className="flex justify-between">
-          {order.delivery_kes > 0 ? (
-            <span className="mm-muted">Delivery: {kes(order.delivery_kes)}</span>
-          ) : (
-            <span className="mm-muted">Free delivery</span>
-          )}
+        <div className="flex justify-end">
           <span className="font-[700] text-[13px]">Total: {kes(order.total_kes)}</span>
         </div>
         {paidKes > 0 && !fullyPaid && (
@@ -253,7 +248,7 @@ function OrderCard({ order, phone }: { order: TrackedOrder; phone: string }) {
         )}
       </div>
 
-      {/* Self-service payment — remounts per partial payment to reset the amount */}
+      {/* Self-service payment - remounts per partial payment to reset the amount */}
       {canPay && (
         <PayNow
           key={paidKes}
@@ -303,7 +298,7 @@ export default function TrackOrder() {
   return (
     <section id="track" className="py-12 sm:py-16 border-t" style={{ borderColor: "#ebe2d2" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-8">
-        {/* Search bar — always centred */}
+        {/* Search bar - always centred */}
         <div className="max-w-[540px] mx-auto">
           <h2 className="font-display text-[30px] sm:text-[36px] mb-1">Track Your Order</h2>
           <p className="mm-muted text-[14px] mb-6">Enter the M-Pesa phone number you used at checkout. You can also finish paying any unpaid order here.</p>
@@ -337,7 +332,7 @@ export default function TrackOrder() {
           )}
         </div>
 
-        {/* Results — side by side when both sections exist, single column otherwise */}
+        {/* Results - side by side when both sections exist, single column otherwise */}
         {hasResults && (
           <div className={`mt-2 ${
             successfulOrders.length > 0 && unsuccessfulOrders.length > 0

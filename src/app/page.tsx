@@ -30,7 +30,43 @@ type Finish = "Matte" | "Eggshell" | "Satin" | "Semi-Gloss";
 type Size = "1L" | "4L" | "20L";
 
 type Colour = { id: string; name: string; hex: string; family: ColourFamily; };
-type Product = { id: string; slug: string; name: string; blurb: string; category: "Paint" | "Primer" | "Supplies"; baseKes: Record<Size, number>; image: string; };
+
+type Variant = {
+  variantId: string;
+  size: Size;
+  listKes: number;
+  saleKes: number | null;
+  stockTracking: boolean;
+  available: number | null;
+};
+
+type PaintSpecs = {
+  washability: number | null;
+  coverage: number | null;
+  dryingMinutes: number | null;
+};
+
+type Product = {
+  id: string;
+  slug: string;
+  name: string;
+  blurb: string;
+  shortDescription?: string;
+  longDescription?: string;
+  category: "Paint" | "Primer" | "Supplies" | "Service";
+  productType?: string;
+  categoryName?: string;
+  isFeatured?: boolean;
+  isNewRelease?: boolean;
+  isExteriorGrade?: boolean;
+  roomTags?: string[];
+  image: string;
+  imageAlt?: string;
+  baseKes: Record<Size, number>;
+  variants: Variant[];
+  specs?: PaintSpecs | null;
+};
+
 type CartItem = { productId: string; productName: string; productSlug: string; colourId: string; colourName: string; colourHex: string; size: Size; finish: Finish; quantity: number; unitKes: number; };
 type Room = { id: string; name: string; photo: string; wallMask?: string };
 
@@ -73,20 +109,44 @@ const FALLBACK_PRODUCTS: Product[] = [
   {
     id: "fp-01", slug: "keekorok-premium-emulsion", name: "Keekorok Premium Emulsion",
     blurb: "Superior washable emulsion. Vivid, long-lasting colour for interior walls & ceilings.",
-    category: "Paint", image: "",
+    category: "Paint", productType: "paint", categoryName: "Paint",
+    isFeatured: true, isNewRelease: true, isExteriorGrade: false,
+    roomTags: ["Living Room", "Bedroom", "Hallway"], image: "", imageAlt: "",
     baseKes: { "1L": 850, "4L": 2800, "20L": 11500 },
+    variants: [
+      { variantId: "fv-1-1", size: "1L", listKes: 850, saleKes: null, stockTracking: false, available: null },
+      { variantId: "fv-1-2", size: "4L", listKes: 2800, saleKes: null, stockTracking: false, available: null },
+      { variantId: "fv-1-3", size: "20L", listKes: 11500, saleKes: null, stockTracking: false, available: null }
+    ],
+    specs: { washability: 5, coverage: 12, dryingMinutes: 180 }
   },
   {
     id: "fp-02", slug: "keekorok-satin-finish", name: "Keekorok Satin Finish",
-    blurb: "Silky satin sheen — ideal for living rooms, hallways & feature walls.",
-    category: "Paint", image: "",
+    blurb: "Silky satin sheen - ideal for living rooms, hallways & feature walls.",
+    category: "Paint", productType: "paint", categoryName: "Paint",
+    isFeatured: true, isNewRelease: false, isExteriorGrade: false,
+    roomTags: ["Living Room", "Dining Room", "Kids Room"], image: "", imageAlt: "",
     baseKes: { "1L": 950, "4L": 3200, "20L": 13500 },
+    variants: [
+      { variantId: "fv-2-1", size: "1L", listKes: 950, saleKes: null, stockTracking: false, available: null },
+      { variantId: "fv-2-2", size: "4L", listKes: 3200, saleKes: null, stockTracking: false, available: null },
+      { variantId: "fv-2-3", size: "20L", listKes: 13500, saleKes: null, stockTracking: false, available: null }
+    ],
+    specs: { washability: 4, coverage: 14, dryingMinutes: 120 }
   },
   {
     id: "fp-03", slug: "keekorok-primer-sealer", name: "Keekorok Primer & Sealer",
     blurb: "Multi-surface primer for new plaster, timber & previously painted surfaces.",
-    category: "Primer", image: "",
+    category: "Primer", productType: "primer", categoryName: "Primer",
+    isFeatured: false, isNewRelease: false, isExteriorGrade: true,
+    roomTags: ["Exterior", "Walls", "Ceilings"], image: "", imageAlt: "",
     baseKes: { "1L": 700, "4L": 2200, "20L": 9000 },
+    variants: [
+      { variantId: "fv-3-1", size: "1L", listKes: 700, saleKes: null, stockTracking: false, available: null },
+      { variantId: "fv-3-2", size: "4L", listKes: 2200, saleKes: null, stockTracking: false, available: null },
+      { variantId: "fv-3-3", size: "20L", listKes: 9000, saleKes: null, stockTracking: false, available: null }
+    ],
+    specs: { washability: 3, coverage: 10, dryingMinutes: 90 }
   },
 ];
 
@@ -519,6 +579,379 @@ function CheckoutDialog({
   );
 }
 
+function ProductCard({ prod, colours, addItem, onOpenQuickView }: { prod: Product; colours: Colour[]; addItem: (item: any) => void; onOpenQuickView: (prod: Product) => void }) {
+  const sizes = prod.variants && prod.variants.length > 0 ? prod.variants.map(v => v.size) : (["1L", "4L", "20L"] as Size[]);
+  const uniqueSizes = Array.from(new Set(sizes)) as Size[];
+  
+  const [size, setSize] = useState<Size>(uniqueSizes.includes("4L") ? "4L" : uniqueSizes[0] || "4L");
+  const [finish] = useState<Finish>("Matte");
+
+  const activeVariant = prod.variants?.find(v => v.size === size) || {
+    variantId: prod.id,
+    size,
+    listKes: prod.baseKes[size] || 0,
+    saleKes: null,
+    stockTracking: false,
+    available: null
+  };
+
+  const priceKes = activeVariant.saleKes !== null ? activeVariant.saleKes : activeVariant.listKes;
+  const isManaged = activeVariant.stockTracking && activeVariant.available !== null;
+  const availableQty = activeVariant.available;
+  const isSoldOut = isManaged && availableQty !== null && availableQty <= 0;
+  const isLowStock = isManaged && availableQty !== null && availableQty > 0 && availableQty <= 5;
+
+  const showDiscount = activeVariant.saleKes !== null && activeVariant.listKes > activeVariant.saleKes;
+  const discountPercent = showDiscount ? Math.round(((activeVariant.listKes - activeVariant.saleKes!) / activeVariant.listKes) * 100) : 0;
+
+  const [colourId, setColourId] = useState<string | null>(colours[0]?.id || null);
+  const selectedColour = colours.find(c => c.id === colourId) || colours[0] || null;
+
+  const handleQuickAdd = () => {
+    if (!selectedColour) return;
+    addItem({
+      productId: prod.id,
+      productName: prod.name,
+      productSlug: prod.slug,
+      colourId: selectedColour.id,
+      colourName: selectedColour.name,
+      colourHex: selectedColour.hex,
+      size,
+      finish,
+      unitKes: priceKes
+    });
+  };
+
+  return (
+    <div className="mm-card rounded-[22px] overflow-hidden mm-shadow flex flex-col group relative bg-white">
+      <div className="absolute top-3 left-3 z-10 flex flex-wrap gap-1">
+        <span className="text-[11px] font-[700] px-[10px] py-[5px] rounded-full bg-white/95 text-graphite mm-shadow">
+          {prod.categoryName || prod.category}
+        </span>
+        {prod.isFeatured && (
+          <span className="text-[11px] font-[700] px-[10px] py-[5px] rounded-full text-white bg-[#B84A32] mm-shadow">
+            Featured
+          </span>
+        )}
+        {prod.isNewRelease && (
+          <span className="text-[11px] font-[700] px-[10px] py-[5px] rounded-full text-white bg-[#4FB9B0] mm-shadow">
+            New
+          </span>
+        )}
+        {prod.isExteriorGrade && (
+          <span className="text-[11px] font-[700] px-[10px] py-[5px] rounded-full text-white bg-slate-700 mm-shadow">
+            Exterior
+          </span>
+        )}
+      </div>
+
+      {isManaged && (
+        <div className="absolute top-3 right-3 z-10">
+          {isSoldOut ? (
+            <span className="text-[11px] font-[700] px-[10px] py-[5px] rounded-full bg-red-50 text-red-700 mm-shadow">
+              Sold Out
+            </span>
+          ) : isLowStock ? (
+            <span className="text-[11px] font-[700] px-[10px] py-[5px] rounded-full bg-amber-50 text-amber-700 mm-shadow animate-pulse">
+              Only {availableQty} left
+            </span>
+          ) : (
+            <span className="text-[11px] font-[700] px-[10px] py-[5px] rounded-full bg-emerald-50 text-emerald-700 mm-shadow">
+              In Stock
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="relative h-[200px] sm:h-[220px] bg-[#f5efe5] overflow-hidden cursor-pointer" onClick={() => onOpenQuickView(prod)}>
+        {prod.image ? (
+          <img src={prod.image} alt={prod.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center relative">
+            <div className="w-16 h-16 rounded-full mm-shadow transition-transform duration-300 group-hover:scale-110" style={{ backgroundColor: selectedColour?.hex ?? "#B84A32" }} />
+            <div className="absolute bottom-2 text-center text-[10px] mm-muted">Default Colour: {selectedColour?.name}</div>
+          </div>
+        )}
+      </div>
+
+      <div className="p-4 sm:p-5 flex flex-col flex-1">
+        <div className="cursor-pointer" onClick={() => onOpenQuickView(prod)}>
+          <div className="font-display text-[19px] text-graphite font-bold hover:text-[#B84A32] transition-colors">{prod.name}</div>
+          <p className="text-[13px] mm-muted mt-1 line-clamp-2 h-[38px]">{prod.blurb}</p>
+        </div>
+
+        <div className="mt-4">
+          <div className="text-[11px] font-[600] mm-muted uppercase tracking-wider mb-2">Size</div>
+          <div className="flex gap-1.5">
+            {uniqueSizes.map(s => (
+              <button key={s} onClick={() => setSize(s)} className={`chip py-[4px] px-[10px] text-[12px] ${size === s ? "active" : ""}`}>
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="font-[700] text-[17px] text-graphite">{kes(priceKes)}</span>
+              {showDiscount && (
+                <span className="text-[11.5px] line-through text-slate-400">{kes(activeVariant.listKes)}</span>
+              )}
+            </div>
+            {showDiscount && (
+              <div className="text-[10px] font-[700] text-red-650" style={{ color: "#B84A32" }}>Save {discountPercent}%</div>
+            )}
+            <div className="text-[11px] mm-muted">{size} · {finish}</div>
+          </div>
+
+          <div className="flex flex-col gap-1 items-end">
+            <button
+              onClick={handleQuickAdd}
+              disabled={isSoldOut || !selectedColour}
+              className="btn btn-primary px-[15px] py-[8px] text-[12.5px] disabled:opacity-50"
+            >
+              {isSoldOut ? "Sold Out" : "Quick Add"}
+            </button>
+            <button
+              onClick={() => onOpenQuickView(prod)}
+              className="text-[11px] font-[600] text-[#4FB9B0] hover:underline bg-transparent border-0 cursor-pointer p-0 mt-1"
+            >
+              View Details
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QuickViewModal({ prod, colours, onClose, addItem }: { prod: Product; colours: Colour[]; onClose: () => void; addItem: (item: any) => void }) {
+  const sizes = prod.variants && prod.variants.length > 0 ? prod.variants.map(v => v.size) : (["1L", "4L", "20L"] as Size[]);
+  const uniqueSizes = Array.from(new Set(sizes)) as Size[];
+  
+  const [size, setSize] = useState<Size>(uniqueSizes.includes("4L") ? "4L" : uniqueSizes[0] || "4L");
+  const [finish, setFinish] = useState<Finish>("Matte");
+  const [quantity, setQuantity] = useState(1);
+  const [colourId, setColourId] = useState<string | null>(colours[0]?.id || null);
+  const selectedColour = colours.find(c => c.id === colourId) || colours[0] || null;
+
+  const activeVariant = prod.variants?.find(v => v.size === size) || {
+    variantId: prod.id,
+    size,
+    listKes: prod.baseKes[size] || 0,
+    saleKes: null,
+    stockTracking: false,
+    available: null
+  };
+
+  const priceKes = activeVariant.saleKes !== null ? activeVariant.saleKes : activeVariant.listKes;
+  const isManaged = activeVariant.stockTracking && activeVariant.available !== null;
+  const availableQty = activeVariant.available;
+  const isSoldOut = isManaged && availableQty !== null && availableQty <= 0;
+  const isLowStock = isManaged && availableQty !== null && availableQty > 0 && availableQty <= 5;
+
+  const showDiscount = activeVariant.saleKes !== null && activeVariant.listKes > activeVariant.saleKes;
+  const discountPercent = showDiscount ? Math.round(((activeVariant.listKes - activeVariant.saleKes!) / activeVariant.listKes) * 100) : 0;
+
+  const handleAdd = () => {
+    if (!selectedColour) return;
+    addItem({
+      productId: prod.id,
+      productName: prod.name,
+      productSlug: prod.slug,
+      colourId: selectedColour.id,
+      colourName: selectedColour.name,
+      colourHex: selectedColour.hex,
+      size,
+      finish,
+      unitKes: priceKes,
+      quantity
+    });
+    onClose();
+  };
+
+  const groupedColours = FAMILIES.reduce((acc, fam) => {
+    const list = colours.filter(c => c.family === fam);
+    if (list.length > 0) acc.push({ family: fam, list });
+    return acc;
+  }, [] as { family: ColourFamily; list: Colour[] }[]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm fade overflow-y-auto">
+      <div className="bg-white rounded-[24px] mm-card mm-shadow w-full max-w-4xl overflow-hidden relative flex flex-col md:flex-row my-8">
+        <button onClick={onClose} className="absolute top-4 right-4 z-20 w-8 h-8 rounded-full bg-white/85 flex items-center justify-center text-graphite hover:bg-white mm-shadow border-0 cursor-pointer font-bold" aria-label="Close details">
+          ✕
+        </button>
+
+        <div className="w-full md:w-1/2 bg-[#f5efe5] min-h-[260px] md:min-h-[420px] relative flex items-center justify-center">
+          {prod.image ? (
+            <img src={prod.image} alt={prod.name} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center">
+              <div className="w-24 h-24 rounded-full border-4 border-white mm-shadow mb-3" style={{ backgroundColor: selectedColour?.hex ?? "#B84A32" }} />
+              <div className="text-[12px] mm-muted">Configured Swatch Color: {selectedColour?.name}</div>
+            </div>
+          )}
+
+          <div className="absolute top-4 left-4 flex flex-wrap gap-1">
+            <span className="text-[11px] font-[700] px-[10px] py-[5px] rounded-full bg-white/95 text-graphite mm-shadow">
+              {prod.categoryName || prod.category}
+            </span>
+          </div>
+        </div>
+
+        <div className="w-full md:w-1/2 p-6 sm:p-8 flex flex-col justify-between max-h-[85vh] overflow-y-auto">
+          <div>
+            <div className="text-[12px] font-[600] text-[#4FB9B0] uppercase tracking-wider">{prod.categoryName || prod.category}</div>
+            <h3 className="font-display text-[26px] sm:text-[30px] font-bold text-graphite leading-tight mt-1">{prod.name}</h3>
+            
+            {isManaged && (
+              <div className="mt-2">
+                {isSoldOut ? (
+                  <span className="inline-flex items-center text-[12px] font-[700] text-red-650 bg-red-50 px-2 py-1 rounded">
+                    Sold out in this size
+                  </span>
+                ) : isLowStock ? (
+                  <span className="inline-flex items-center text-[12px] font-[700] text-amber-650 bg-amber-50 px-2 py-1 rounded animate-pulse">
+                    Only {availableQty} units left in this size
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center text-[12px] font-[700] text-emerald-600 bg-emerald-50 px-2 py-1 rounded">
+                    In Stock (available to order)
+                  </span>
+                )}
+              </div>
+            )}
+
+            <p className="text-[13.5px] mm-muted mt-3 leading-relaxed">{prod.longDescription || prod.blurb}</p>
+
+            {prod.roomTags && prod.roomTags.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {prod.roomTags.map(tag => (
+                  <span key={tag} className="text-[11px] font-[600] px-2.5 py-1 bg-slate-100 rounded-full text-slate-600">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {prod.specs && (
+              <div className="mt-5 p-4 rounded-[16px] bg-[#F8F4EF] border border-[#e8dcc7] grid grid-cols-3 gap-2">
+                <div>
+                  <div className="text-[10px] uppercase font-[600] mm-muted">Washability</div>
+                  <div className="flex gap-[2px] mt-1">
+                    {[1,2,3,4,5].map(dot => (
+                      <div key={dot} className={`w-[7px] h-[7px] rounded-full ${dot <= (prod.specs?.washability ?? 0) ? "bg-[#B84A32]" : "bg-[#ebe2d2]"}`} />
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase font-[600] mm-muted">Coverage</div>
+                  <div className="font-[700] text-[13px] text-graphite mt-0.5">{prod.specs.coverage ? `${prod.specs.coverage} m²/L` : "N/A"}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase font-[600] mm-muted">Drying Time</div>
+                  <div className="font-[700] text-[13px] text-graphite mt-0.5">{prod.specs.dryingMinutes ? `${Math.round(prod.specs.dryingMinutes / 60 * 10) / 10} hrs` : "N/A"}</div>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-6 space-y-4">
+              <div>
+                <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-2">Select Paint Colour</div>
+                <div className="space-y-3 max-h-[140px] overflow-y-auto pr-1 border border-slate-100 p-2.5 rounded-lg">
+                  {groupedColours.map(group => (
+                    <div key={group.family}>
+                      <div className="text-[10.5px] font-[700] mm-muted mb-1">{group.family}</div>
+                      <div className="flex flex-wrap gap-2">
+                        {group.list.map(c => (
+                          <button
+                            key={c.id}
+                            onClick={() => setColourId(c.id)}
+                            title={c.name}
+                            className={`swatch w-[24px] h-[24px] border-2 ${colourId === c.id ? "active" : ""}`}
+                            style={{ backgroundColor: c.hex }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {selectedColour && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <div className="w-5 h-5 rounded-full border border-slate-200" style={{ backgroundColor: selectedColour.hex }} />
+                    <span className="font-[600] text-[13px]">{selectedColour.name}</span>
+                    <span className="text-[11px] font-mono2 mm-muted">{selectedColour.hex}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-4">
+                <div>
+                  <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-2">Size</div>
+                  <div className="flex gap-2">
+                    {uniqueSizes.map(s => (
+                      <button key={s} onClick={() => setSize(s)} className={`chip ${size === s ? "active" : ""}`}>
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-2">Finish</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(["Matte", "Eggshell", "Satin", "Semi-Gloss"] as Finish[]).map(f => (
+                      <button key={f} onClick={() => setFinish(f)} className={`chip ${finish === f ? "active" : ""}`}>
+                        {f}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-2">Quantity</div>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center border border-[#e4d7c2] rounded-full overflow-hidden bg-white">
+                    <button onClick={() => setQuantity(q => Math.max(1, q - 1))} className="px-3 py-1.5 hover:bg-slate-50 font-bold border-0 bg-transparent cursor-pointer" disabled={quantity <= 1}>-</button>
+                    <span className="px-4 py-1.5 text-center font-[700] text-[14px] min-w-[36px]">{quantity}</span>
+                    <button onClick={() => setQuantity(q => q + 1)} className="px-3 py-1.5 hover:bg-slate-50 font-bold border-0 bg-transparent cursor-pointer">+</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-8 pt-4 border-t border-slate-100 flex items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-[700] text-[24px] text-graphite">{kes(priceKes * quantity)}</span>
+                {showDiscount && (
+                  <span className="text-[14px] line-through text-slate-400">{kes(activeVariant.listKes * quantity)}</span>
+                )}
+              </div>
+              {showDiscount && (
+                <div className="text-[12px] font-[700] text-red-650" style={{ color: "#B84A32" }}>Save {discountPercent}% on each unit</div>
+              )}
+              <div className="text-[12px] mm-muted">{size} · {finish} · {quantity} unit{quantity > 1 ? "s" : ""}</div>
+            </div>
+
+            <button
+              onClick={handleAdd}
+              disabled={isSoldOut || !selectedColour}
+              className="btn btn-primary px-[26px] py-[13px] text-[15px] disabled:opacity-50"
+            >
+              {isSoldOut ? "Sold Out" : "Add to Cart"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── App / Home ── */
 export default function Home() {
   const [colours, setColours] = useState<Colour[]>(FALLBACK_COLOURS);
@@ -602,10 +1035,57 @@ export default function Home() {
   const [familyFilter, setFamilyFilter] = useState<ColourFamily | "All">("All");
   const filteredColours = familyFilter === "All" ? colours : colours.filter(c => c.family === familyFilter);
 
-  const [shopColourId, setShopColourId] = useState<string | null>(null);
-  const shopColour = (shopColourId ? colours.find(c => c.id === shopColourId) : null) ?? colours[0] ?? null;
-  const [shopSize, setShopSize] = useState<Size>("4L");
-  const [shopFinish, setShopFinish] = useState<Finish>("Matte");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("All");
+  const [sortBy, setSortBy] = useState("Featured");
+  const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
+
+  const filteredProducts = useMemo(() => {
+    let result = [...products];
+
+    if (searchTerm.trim() !== "") {
+      const term = searchTerm.toLowerCase();
+      result = result.filter(p => 
+        p.name.toLowerCase().includes(term) ||
+        (p.shortDescription && p.shortDescription.toLowerCase().includes(term)) ||
+        (p.roomTags && p.roomTags.some(t => t.toLowerCase().includes(term))) ||
+        (p.productType && p.productType.toLowerCase().includes(term))
+      );
+    }
+
+    if (categoryFilter !== "All") {
+      result = result.filter(p => {
+        const cat = p.categoryName || p.category;
+        return cat.toLowerCase() === categoryFilter.toLowerCase();
+      });
+    }
+
+    result.sort((a, b) => {
+      const getProductPrice = (p: Product) => {
+        const v = p.variants?.[0];
+        if (!v) return p.baseKes?.["4L"] || 0;
+        return v.saleKes !== null ? v.saleKes : v.listKes;
+      };
+
+      if (sortBy === "PriceAsc") {
+        return getProductPrice(a) - getProductPrice(b);
+      }
+      if (sortBy === "PriceDesc") {
+        return getProductPrice(b) - getProductPrice(a);
+      }
+      if (sortBy === "Newest") {
+        return (b.isNewRelease ? 1 : 0) - (a.isNewRelease ? 1 : 0);
+      }
+      if (sortBy === "Name") {
+        return a.name.localeCompare(b.name);
+      }
+      const featuredScoreA = (a.isFeatured ? 2 : 0) + (a.isNewRelease ? 1 : 0);
+      const featuredScoreB = (b.isFeatured ? 2 : 0) + (b.isNewRelease ? 1 : 0);
+      return featuredScoreB - featuredScoreA;
+    });
+
+    return result;
+  }, [products, searchTerm, categoryFilter, sortBy]);
 
   const addItem = useCallback((item: Omit<CartItem, "quantity"> & { quantity?: number }) => {
     const qty = item.quantity ?? 1;
@@ -854,82 +1334,179 @@ export default function Home() {
         <section id="shop" className={`py-12 sm:py-16 border-t ${activePage === "shop" ? "block pg-enter" : "hidden lg:block"}`} style={{ borderColor: "#ebe2d2" }}>
           <div className="max-w-7xl mx-auto px-4 sm:px-8">
             <div className="max-w-[760px] mb-6">
-              <h2 className="font-display text-[30px] sm:text-[36px] text-graphite">Shop</h2>
+              <h2 className="font-display text-[30px] sm:text-[36px] text-graphite font-bold">Shop</h2>
               <p className="mm-muted mt-2">Premium Keekorok paints, primers &amp; supplies. M-Pesa checkout. Free delivery on all orders.</p>
             </div>
-            <div className="mm-card rounded-[20px] p-5 mb-6">
-              <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-3">Choose Your Colour</div>
-              <div className="flex flex-wrap gap-[10px] mb-4">
-                {colours.slice(0, 20).map(c => (
-                  <button key={c.id} onClick={() => setShopColourId(c.id)} title={c.name} className={`swatch ${shopColour?.id === c.id ? "active" : ""}`} style={{ backgroundColor: c.hex }} />
+
+            {/* Trust strip */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 sm:p-5 rounded-[20px] mb-8 bg-white border border-[#ebe2d2] mm-shadow">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center bg-amber-50 text-amber-700 flex-shrink-0">
+                  <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>
+                  </svg>
+                </div>
+                <div>
+                  <div className="font-[700] text-[13px] text-graphite">100% Kenyan-Made</div>
+                  <div className="text-[11px] mm-muted">Crafted for local homes</div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center bg-emerald-50 text-emerald-700 flex-shrink-0">
+                  <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 2v4M12 11V6M7.5 6a4.5 4.5 0 0 1 9 0"/>
+                  </svg>
+                </div>
+                <div>
+                  <div className="font-[700] text-[13px] text-graphite">M-Pesa Checkout</div>
+                  <div className="text-[11px] mm-muted">Safe, instant payments</div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center bg-teal-50 text-teal-700 flex-shrink-0">
+                  <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
+                  </svg>
+                </div>
+                <div>
+                  <div className="font-[700] text-[13px] text-graphite">Free Delivery</div>
+                  <div className="text-[11px] mm-muted">Nairobi orders over 15K</div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center bg-[#B84A32]/10 text-[#B84A32] flex-shrink-0">
+                  <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+                  </svg>
+                </div>
+                <div>
+                  <div className="font-[700] text-[13px] text-graphite">Genuine Stock</div>
+                  <div className="text-[11px] mm-muted">Direct from our factory</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Discovery Toolbar */}
+            <div className="mm-card rounded-[20px] p-4 sm:p-5 mb-8 flex flex-col md:flex-row gap-4 justify-between items-stretch md:items-center">
+              {/* Search */}
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  placeholder="Search products by name, tags..."
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  className="input pl-10 pr-4"
+                />
+                <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+                  <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                    <circle cx="11" cy="11" r="8"/>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.3-4.3"/>
+                  </svg>
+                </div>
+              </div>
+
+              {/* Category Filter */}
+              <div className="flex flex-wrap gap-2 items-center">
+                <span className="text-[11px] font-[700] uppercase tracking-wider mm-muted hidden sm:inline">Category:</span>
+                {["All", "Paint", "Primer", "Supplies"].map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setCategoryFilter(cat)}
+                    className={`chip py-[5px] px-[12px] text-[12.5px] ${categoryFilter === cat ? "active" : ""}`}
+                  >
+                    {cat}
+                  </button>
                 ))}
               </div>
-              {shopColour && (
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full border-2 border-white mm-shadow" style={{ backgroundColor: shopColour.hex }} />
-                  <span className="font-[600] text-[14px]">{shopColour.name}</span>
-                  <span className="font-mono2 text-[12px] mm-muted">{shopColour.hex}</span>
-                </div>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-4 mb-6">
-              <div>
-                <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-2">Size</div>
-                <div className="flex gap-2">
-                  {(["1L","4L","20L"] as Size[]).map(s => (
-                    <button key={s} onClick={() => setShopSize(s)} className={`chip ${shopSize === s ? "active" : ""}`}>{s}</button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <div className="text-[12px] font-[600] mm-muted uppercase tracking-wider mb-2">Finish</div>
-                <div className="flex flex-wrap gap-2">
-                  {(["Matte","Eggshell","Satin","Semi-Gloss"] as Finish[]).map(f => (
-                    <button key={f} onClick={() => setShopFinish(f)} className={`chip ${shopFinish === f ? "active" : ""}`}>{f}</button>
-                  ))}
-                </div>
+
+              {/* Sorting */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-[700] uppercase tracking-wider mm-muted hidden sm:inline">Sort:</span>
+                <select
+                  value={sortBy}
+                  onChange={e => setSortBy(e.target.value)}
+                  className="select max-w-[180px] py-[6px] px-[12px] rounded-[999px]"
+                  style={{ height: "38px" }}
+                >
+                  <option value="Featured">Featured</option>
+                  <option value="PriceAsc">Price: Low to High</option>
+                  <option value="PriceDesc">Price: High to Low</option>
+                  <option value="Newest">New Arrivals</option>
+                  <option value="Name">Name A-Z</option>
+                </select>
               </div>
             </div>
+
             {dataLoading ? (
               <div className="text-center py-12 mm-muted">Loading products…</div>
-            ) : products.length === 0 ? (
-              <div className="text-center py-12 mm-muted">No products available yet.</div>
+            ) : filteredProducts.length === 0 ? (
+              <div className="text-center py-12 mm-muted">No products found matching your search.</div>
             ) : (
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
-                {products.map(prod => (
-                  <div key={prod.id} className="mm-card rounded-[22px] overflow-hidden mm-shadow flex flex-col">
-                    <div className="relative h-[200px] sm:h-[220px] bg-[#f0ebe1]">
-                      {prod.image ? (
-                        <img src={prod.image} alt={prod.name} className="w-full h-full object-cover" loading="lazy" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <div className="w-16 h-16 rounded-full" style={{ backgroundColor: shopColour?.hex ?? "#B84A32" }} />
-                        </div>
-                      )}
-                      <div className="absolute top-3 left-3">
-                        <span className="text-[11px] font-[600] px-[10px] py-[5px] rounded-full bg-white/90" style={{ color: prod.category === "Paint" ? "#B84A32" : prod.category === "Primer" ? "#4FB9B0" : "#2B2B2E" }}>{prod.category}</span>
-                      </div>
+              <>
+                {/* Featured collections row */}
+                {searchTerm === "" && categoryFilter === "All" && filteredProducts.filter(p => p.isFeatured).length > 0 && (
+                  <div className="mb-10">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-display text-[20px] sm:text-[24px] text-graphite font-bold">Featured Masterpieces</h3>
+                      <span className="text-[11px] font-[700] text-[#B84A32] uppercase tracking-wider">Curated Premium Picks</span>
                     </div>
-                    <div className="p-4 sm:p-5 flex flex-col flex-1">
-                      <div className="font-display text-[19px] text-graphite">{prod.name}</div>
-                      <p className="text-[13px] mm-muted mt-1 flex-1">{prod.blurb}</p>
-                      <div className="mt-4 flex items-center justify-between gap-2">
-                        <div>
-                          <div className="font-[700] text-[18px] text-graphite">{kes(prod.baseKes[shopSize])}</div>
-                          <div className="text-[11.5px] mm-muted">{shopSize} · {shopFinish}</div>
+                    <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-thin">
+                      {filteredProducts.filter(p => p.isFeatured).map(prod => (
+                        <div key={`featured-${prod.id}`} className="w-[280px] sm:w-[320px] flex-shrink-0">
+                          <ProductCard prod={prod} colours={colours} addItem={addItem} onOpenQuickView={setQuickViewProduct} />
                         </div>
-                        <button onClick={() => shopColour && addItem({ productId: prod.id, productName: prod.name, productSlug: prod.slug, colourId: shopColour.id, colourName: shopColour.name, colourHex: shopColour.hex, size: shopSize, finish: shopFinish, unitKes: prod.baseKes[shopSize] })}
-                          disabled={!shopColour} className="btn btn-primary px-[18px] py-[11px] text-[13.5px] disabled:opacity-50">
-                          Add to Cart
-                        </button>
-                      </div>
+                      ))}
                     </div>
                   </div>
-                ))}
-              </div>
+                )}
+
+                {/* New arrivals row */}
+                {searchTerm === "" && categoryFilter === "All" && filteredProducts.filter(p => p.isNewRelease).length > 0 && (
+                  <div className="mb-10">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-display text-[20px] sm:text-[24px] text-graphite font-bold">New Arrivals</h3>
+                      <span className="text-[11px] font-[700] text-[#4FB9B0] uppercase tracking-wider">Fresh From Our Factory</span>
+                    </div>
+                    <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-thin">
+                      {filteredProducts.filter(p => p.isNewRelease).map(prod => (
+                        <div key={`new-${prod.id}`} className="w-[280px] sm:w-[320px] flex-shrink-0">
+                          <ProductCard prod={prod} colours={colours} addItem={addItem} onOpenQuickView={setQuickViewProduct} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Main Catalog Header */}
+                <div className="flex items-center justify-between mb-6 mt-4 border-t pt-6" style={{ borderColor: "#ebe2d2" }}>
+                  <h3 className="font-display text-[20px] sm:text-[24px] text-graphite font-bold">Explore Our Full Range</h3>
+                  <span className="text-[12px] mm-muted font-mono2">{filteredProducts.length} product{filteredProducts.length !== 1 ? "s" : ""}</span>
+                </div>
+
+                {/* Main Grid */}
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+                  {filteredProducts.map(prod => (
+                    <ProductCard key={prod.id} prod={prod} colours={colours} addItem={addItem} onOpenQuickView={setQuickViewProduct} />
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </section>
+
+        {/* Modal display */}
+        {quickViewProduct && (
+          <QuickViewModal
+            prod={quickViewProduct}
+            colours={colours}
+            onClose={() => setQuickViewProduct(null)}
+            addItem={addItem}
+          />
+        )}
 
         {/* Track Order section */}
         <div className={activePage === "track" ? "block pg-enter" : "hidden lg:block"}>
